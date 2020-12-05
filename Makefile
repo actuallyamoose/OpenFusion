@@ -15,7 +15,7 @@ PROTOCOL_VERSION?=104
 # Windows-specific
 WIN_CC=x86_64-w64-mingw32-gcc
 WIN_CXX=x86_64-w64-mingw32-g++
-WIN_CFLAGS=-O3 #-g3 -fsanitize=address
+WIN_CFLAGS=-O3 -I./cosmo/src #-g3 -fsanitize=address
 WIN_CXX_VANILLA_MINGW_OPT_DISABLES=-fno-tree-dce -fno-inline-small-functions
 WIN_CXX_MSYS2_MINGW_OPT_DISABLES=-fno-tree-dce -fno-tree-fre -fno-tree-vrp -fno-ipa-sra
 WIN_CXXFLAGS=-Wall -Wno-unknown-pragmas -std=c++17 -O3 $(WIN_CXX_OPT_DISABLES) -DPROTOCOL_VERSION=$(PROTOCOL_VERSION) -DGIT_VERSION=\"$(shell git describe --tags)\" #-g3 -fsanitize=address
@@ -23,6 +23,17 @@ WIN_LDFLAGS=-static -lws2_32 -lwsock32 #-g3 -fsanitize=address
 WIN_SERVER=bin/winfusion.exe
 
 CSRC=\
+	cosmo/src/cbaselib.c\
+	cosmo/src/cchunk.c\
+	cosmo/src/cdebug.c\
+	cosmo/src/clex.c\
+	cosmo/src/cmem.c\
+	cosmo/src/cobj.c\
+	cosmo/src/cparse.c\
+	cosmo/src/cstate.c\
+	cosmo/src/ctable.c\
+	cosmo/src/cvalue.c\
+	cosmo/src/cvm.c\
 	src/contrib/sqlite/sqlite3.c\
 	src/contrib/bcrypt/bcrypt.c\
 	src/contrib/bcrypt/crypt_blowfish.c\
@@ -137,7 +148,7 @@ src/main.o: version.h
 # only gets rid of OpenFusion objects, so we don't need to
 # recompile the libs every time
 clean:
-	rm -f src/*.o $(SERVER) $(WIN_SERVER) version.h
+	rm -f cosmo/src/*.o src/*.o $(SERVER) $(WIN_SERVER) version.h
 
 # gets rid of all compiled objects, including the libraries
 nuke:
