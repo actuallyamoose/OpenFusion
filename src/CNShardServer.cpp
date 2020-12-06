@@ -39,7 +39,7 @@ void CNShardServer::handlePacket(CNSocket* sock, CNPacketData* data) {
         PlayerManager::players[sock]->lastHeartbeat = getTime();
 }
 
-void CNShardServer::keepAliveTimer(CNServer* serv, time_t currTime) {
+void CNShardServer::keepAliveTimer(CNServer* serv, time_t currTime, TimerEvent *event) {
     for (auto& pair : PlayerManager::players) {
         if (pair.second->lastHeartbeat != 0 && currTime - pair.second->lastHeartbeat > settings::TIMEOUT) {
             // if the client hasn't responded in 60 seconds, its a dead connection so throw it out
@@ -52,7 +52,7 @@ void CNShardServer::keepAliveTimer(CNServer* serv, time_t currTime) {
     }
 }
 
-void CNShardServer::periodicSaveTimer(CNServer* serv, time_t currTime) {
+void CNShardServer::periodicSaveTimer(CNServer* serv, time_t currTime, TimerEvent *event) {
     if (PlayerManager::players.empty())
         return;
 
@@ -96,7 +96,7 @@ void CNShardServer::killConnection(CNSocket *cns) {
 
 // flush the DB when terminating the server
 void CNShardServer::kill() {
-    periodicSaveTimer(nullptr, 0);
+    periodicSaveTimer(nullptr, 0, nullptr);
     CNServer::kill();
 }
 
@@ -112,7 +112,7 @@ void CNShardServer::onStep() {
 
         if (event.scheduledEvent < currTime) {
             // timer needs to be called
-            event.handlr(this, currTime);
+            event.handlr(this, currTime, &event);
             event.scheduledEvent = currTime + event.delta;
         }
     }

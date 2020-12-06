@@ -426,7 +426,7 @@ void MobManager::killMob(CNSocket *sock, Mob *mob) {
     }
 }
 
-void MobManager::deadStep(Mob *mob, time_t currTime) {
+void MobManager::deadStep(Mob *mob, time_t currTime, TimerEvent *event) {
     // despawn the mob after a short delay
     if (mob->killedTime != 0 && !mob->despawned && currTime - mob->killedTime > 2000) {
         mob->despawned = true;
@@ -447,7 +447,7 @@ void MobManager::deadStep(Mob *mob, time_t currTime) {
 
     // to guide their groupmates, group leaders still need to move despite being dead
     if (mob->groupLeader == mob->appearanceData.iNPC_ID)
-        roamingStep(mob, currTime);
+        roamingStep(mob, currTime, event);
 
     if (mob->killedTime != 0 && currTime - mob->killedTime < mob->regenTime * 100)
         return;
@@ -485,7 +485,7 @@ void MobManager::deadStep(Mob *mob, time_t currTime) {
     NPCManager::sendToViewable(mob, &pkt, P_FE2CL_NPC_NEW, sizeof(sP_FE2CL_NPC_NEW));
 }
 
-void MobManager::combatStep(Mob *mob, time_t currTime) {
+void MobManager::combatStep(Mob *mob, time_t currTime, TimerEvent *event) {
     assert(mob->target != nullptr);
 
     // lose aggro if the player lost connection
@@ -621,7 +621,7 @@ void MobManager::incNextMovement(Mob *mob, time_t currTime) {
     mob->nextMovement = currTime + delay/2 + rand() % (delay/2);
 }
 
-void MobManager::roamingStep(Mob *mob, time_t currTime) {
+void MobManager::roamingStep(Mob *mob, time_t currTime, TimerEvent *event) {
     /*
      * We reuse nextAttack to avoid scanning for players all the time, but to still
      * do so more often than if we waited for nextMovement (which is way too slow).
@@ -704,7 +704,7 @@ void MobManager::roamingStep(Mob *mob, time_t currTime) {
     }
 }
 
-void MobManager::retreatStep(Mob *mob, time_t currTime) {
+void MobManager::retreatStep(Mob *mob, time_t currTime, TimerEvent *event) {
     if (mob->nextMovement != 0 && currTime < mob->nextMovement)
         return;
 
@@ -749,7 +749,7 @@ void MobManager::retreatStep(Mob *mob, time_t currTime) {
     }
 }
 
-void MobManager::step(CNServer *serv, time_t currTime) {
+void MobManager::step(CNServer *serv, time_t currTime, TimerEvent *event) {
     for (auto& pair : Mobs) {
 
         // skip chunks without players
@@ -769,16 +769,16 @@ void MobManager::step(CNServer *serv, time_t currTime) {
             // no-op
             break;
         case MobState::ROAMING:
-            roamingStep(pair.second, currTime);
+            roamingStep(pair.second, currTime, event);
             break;
         case MobState::COMBAT:
-            combatStep(pair.second, currTime);
+            combatStep(pair.second, currTime, event);
             break;
         case MobState::RETREAT:
-            retreatStep(pair.second, currTime);
+            retreatStep(pair.second, currTime, event);
             break;
         case MobState::DEAD:
-            deadStep(pair.second, currTime);
+            deadStep(pair.second, currTime, event);
             break;
         }
     }
@@ -906,7 +906,7 @@ void MobManager::dealGooDamage(CNSocket *sock, int amount) {
     PlayerManager::sendToViewable(sock, (void*)&respbuf, P_FE2CL_CHAR_TIME_BUFF_TIME_TICK, resplen);
 }
 
-void MobManager::playerTick(CNServer *serv, time_t currTime) {
+void MobManager::playerTick(CNServer *serv, time_t currTime, TimerEvent *event) {
     static time_t lastHealTime = 0;
 
     for (auto& pair : PlayerManager::players) {

@@ -7,6 +7,6 @@
 
 namespace Monitor {
     SOCKET init();
-    void tick(CNServer *, time_t);
+    void tick(CNServer *, time_t, TimerEvent *);
     bool acceptConnection(SOCKET, uint16_t);
 };

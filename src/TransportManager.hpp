@@ -32,7 +32,7 @@ namespace TransportManager {
 
     void testMssRoute(CNSocket *sock, std::vector<WarpLocation>* route);
 
-    void tickTransportationSystem(CNServer*, time_t);
+    void tickTransportationSystem(CNServer*, time_t, TimerEvent*);
     void stepNPCPathing();
     void stepSkywaySystem();
 

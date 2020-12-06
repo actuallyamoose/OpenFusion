@@ -201,7 +201,7 @@ void TransportManager::testMssRoute(CNSocket *sock, std::vector<WarpLocation>* r
     SkywayQueues[sock] = path;
 }
 
-void TransportManager::tickTransportationSystem(CNServer* serv, time_t currTime) {
+void TransportManager::tickTransportationSystem(CNServer* serv, time_t currTime, TimerEvent *event) {
     stepNPCPathing();
     stepSkywaySystem();
 }

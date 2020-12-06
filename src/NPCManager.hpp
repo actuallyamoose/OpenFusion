@@ -72,7 +72,7 @@ namespace NPCManager {
 
     /// returns -1 on fail
     int eggBuffPlayer(CNSocket* sock, int skillId, int duration);
-    void eggStep(CNServer* serv, time_t currTime);
+    void eggStep(CNServer* serv, time_t currTime, TimerEvent* event);
     void npcDataToEggData(sNPCAppearanceData* npc, sShinyAppearanceData* egg);
     void eggPickup(CNSocket* sock, CNPacketData* data);
 }

@@ -627,7 +627,7 @@ int NPCManager::eggBuffPlayer(CNSocket* sock, int skillId, int eggId) {
     return 0;
 }
 
-void NPCManager::eggStep(CNServer* serv, time_t currTime) {
+void NPCManager::eggStep(CNServer* serv, time_t currTime, TimerEvent *event) {
     // tick buffs
     time_t timeStamp = currTime;
     auto it = EggBuffs.begin();

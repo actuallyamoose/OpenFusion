@@ -84,7 +84,7 @@ static bool transmit(std::list<SOCKET>::iterator& it, char *buff, int len) {
     return true;
 }
 
-void Monitor::tick(CNServer *serv, time_t delta) {
+void Monitor::tick(CNServer *serv, time_t delta, TimerEvent *event) {
     std::lock_guard<std::mutex> lock(sockLock);
     char buff[256];
 

@@ -151,13 +151,13 @@ namespace MobManager {
     extern std::vector<MobPower> MobPowers;
 
     void init();
-    void step(CNServer*, time_t);
-    void playerTick(CNServer*, time_t);
+    void step(CNServer*, time_t, TimerEvent*);
+    void playerTick(CNServer*, time_t, TimerEvent*);
 
-    void deadStep(Mob*, time_t);
-    void combatStep(Mob*, time_t);
-    void retreatStep(Mob*, time_t);
-    void roamingStep(Mob*, time_t);
+    void deadStep(Mob*, time_t, TimerEvent*);
+    void combatStep(Mob*, time_t, TimerEvent*);
+    void retreatStep(Mob*, time_t, TimerEvent*);
+    void roamingStep(Mob*, time_t, TimerEvent*);
 
     void pcAttackNpcs(CNSocket *sock, CNPacketData *data);
     void combatBegin(CNSocket *sock, CNPacketData *data);

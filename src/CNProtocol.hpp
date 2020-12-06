@@ -181,16 +181,19 @@ public:
 };
 
 class CNServer;
-typedef void (*TimerHandler)(CNServer* serv, time_t time);
+struct TimerEvent;
+typedef void (*TimerHandler)(CNServer* serv, time_t time, TimerEvent *event);
 
 // timer struct
 struct TimerEvent {
     TimerHandler handlr;
     time_t delta; // time to be added to the current time on reset
     time_t scheduledEvent; // time to call handlr()
+    void *userData; // normally nullptr
 
     TimerEvent(TimerHandler h, time_t d): handlr(h), delta(d) {
         scheduledEvent = 0;
+        userData = nullptr;
     }
 };
 
