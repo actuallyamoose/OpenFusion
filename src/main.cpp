@@ -38,20 +38,16 @@
 CNShardServer *shardServer = nullptr;
 std::thread *shardThread = nullptr;
 
-std::thread *monitorThread = nullptr;
-
 void startShard(CNShardServer* server) {
     server->start();
 }
 
-// terminate gracefully on SIGINT (for gprof)
+// terminate gracefully on SIGINT (for gprof & DB saving)
 void terminate(int arg) {
     std::cout << "OpenFusion: terminating." << std::endl;
 
-    if (shardServer != nullptr && shardThread != nullptr) {
+    if (shardServer != nullptr && shardThread != nullptr)
         shardServer->kill();
-        shardThread->join();
-    }
 
     exit(0);
 }
@@ -104,7 +100,6 @@ int main() {
     TransportManager::init();
     BuddyManager::init();
     GroupManager::init();
-    Monitor::init();
     Database::open();
 
     switch (settings::EVENTMODE) {
@@ -114,7 +109,7 @@ int main() {
     case 3: std::cout << "[INFO] Event active. Have a very hoppy Easter!" << std::endl; break;
     default:
         std::cout << "[FATAL] Unknown event set in config file." << std::endl;
-        terminate(0);
+        exit(1);
         /* not reached */
     }
 
@@ -123,7 +118,6 @@ int main() {
     shardServer = new CNShardServer(settings::SHARDPORT);
 
     shardThread = new std::thread(startShard, (CNShardServer*)shardServer);
-    monitorThread = new std::thread(Monitor::start, nullptr);
 
     loginServer.start();
 

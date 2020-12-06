@@ -1,6 +1,8 @@
 #include "CNProtocol.hpp"
 #include "CNStructs.hpp"
 
+#include <assert.h>
+
 // ========================================================[[ CNSocketEncryption ]]========================================================
 
 // literally C/P from the client and converted to C++ (does some byte swapping /shrug)
@@ -70,7 +72,7 @@ bool CNSocket::sendData(uint8_t* data, int size) {
     int maxTries = 10;
 
     while (sentBytes < size) {
-        int sent = send(sock, (buffer_t*)(data + sentBytes), size - sentBytes, 0); // no flags defined
+        int sent = send(sock, (buffer_t*)(data + sentBytes), size - sentBytes, 0);
         if (SOCKETERROR(sent)) {
             if (OF_ERRNO == OF_EWOULD && maxTries > 0) {
                 maxTries--;
@@ -161,6 +163,7 @@ void CNSocket::setActiveKey(ACTIVEKEY key) {
 void CNSocket::step() {
     // read step
 
+    // XXX NOTE: we must not recv() twice without a poll() inbetween
     if (readSize <= 0) {
         // we aren't reading a packet yet, try to start looking for one
         int recved = recv(sock, (buffer_t*)readBuffer, sizeof(int32_t), 0);
@@ -194,7 +197,7 @@ void CNSocket::step() {
         }
     }
 
-    if (activelyReading && readBufferIndex - readSize <= 0) {
+    if (activelyReading && readBufferIndex >= readSize) {
         // decrypt readBuffer and copy to CNPacketData
         CNSocketEncryption::decryptData((uint8_t*)&readBuffer, (uint8_t*)(&EKey), readSize);
 
@@ -209,6 +212,27 @@ void CNSocket::step() {
         readBufferIndex = 0;
         activelyReading = false;
     }
+}
+
+bool setSockNonblocking(SOCKET listener, SOCKET newSock) {
+#ifdef _WIN32
+    unsigned long mode = 1;
+    if (ioctlsocket(newSock, FIONBIO, &mode) != 0) {
+#else
+    if (fcntl(newSock, F_SETFL, (fcntl(newSock, F_GETFL, 0) | O_NONBLOCK)) != 0) {
+#endif
+        std::cerr << "[WARN] OpenFusion: fcntl failed on new connection" << std::endl;
+#ifdef _WIN32
+        shutdown(newSock, SD_BOTH);
+        closesocket(newSock);
+#else
+        shutdown(newSock, SHUT_RDWR);
+        close(newSock);
+#endif
+        return false;
+    }
+
+    return true;
 }
 
 // ========================================================[[ CNServer ]]========================================================
@@ -258,69 +282,103 @@ void CNServer::init() {
         std::cerr << "[FATAL] OpenFusion: fcntl failed" << std::endl;
         exit(EXIT_FAILURE);
     }
+
+    // poll() configuration
+    fds.reserve(STARTFDSCOUNT);
+    fds.push_back({sock, POLLIN});
 }
 
 CNServer::CNServer() {};
 CNServer::CNServer(uint16_t p): port(p) {}
 
+void CNServer::addPollFD(SOCKET s) {
+    fds.push_back({s, POLLIN});
+}
+
+void CNServer::removePollFD(int i) {
+    auto it = fds.begin();
+    while (it != fds.end() && it->fd != fds[i].fd)
+        it++;
+    assert(it != fds.end());
+
+    fds.erase(it);
+}
+
 void CNServer::start() {
+    int oldnfds;
+
     std::cout << "Starting server at *:" << port << std::endl;
-    // listen to new connections, add to connection list
     while (active) {
-        std::lock_guard<std::mutex> lock(activeCrit);
-
-        // listen for a new connection
-        SOCKET newConnectionSocket = accept(sock, (struct sockaddr *)&(address), (socklen_t*)&(addressSize));
-        if (!SOCKETINVALID(newConnectionSocket)) {
-            // new connection! make sure to set non-blocking!
-#ifdef _WIN32
-            unsigned long mode = 1;
-            if (ioctlsocket(newConnectionSocket, FIONBIO, &mode) != 0) {
-#else
-            if (fcntl(newConnectionSocket, F_SETFL, (fcntl(sock, F_GETFL, 0) | O_NONBLOCK)) != 0) {
-#endif
-                std::cerr << "[WARN] OpenFusion: fcntl failed on new connection" << std::endl;
-                #ifdef _WIN32
-                    shutdown(newConnectionSocket, SD_BOTH);
-                    closesocket(newConnectionSocket);
-                #else
-                    shutdown(newConnectionSocket, SHUT_RDWR);
-                    close(newConnectionSocket);
-                #endif
-                continue;
-            }
-
-            std::cout << "New connection! " << inet_ntoa(address.sin_addr) << std::endl;
-
-            // add connection to list!
-            CNSocket* tmp = new CNSocket(newConnectionSocket, pHandler);
-            connections.push_back(tmp);
-            newConnection(tmp);
+        // the timeout is to ensure shard timers are ticking
+        int n = poll(fds.data(), fds.size(), 50);
+        if (SOCKETERROR(n)) {
+            std::cout << "[FATAL] poll() returned error" << std::endl;
+            terminate(0);
         }
 
-        // for each connection, check if it's alive, if not kill it!
-        std::list<CNSocket*>::iterator i = connections.begin();
-        while (i != connections.end()) {
-            CNSocket* cSock = *i;
+        oldnfds = fds.size();
 
-            if (cSock->isAlive()) {
-                cSock->step();
+        for (int i = 0; i < oldnfds && n > 0; i++) {
+            if (fds[i].revents == 0)
+                continue; // nothing in this one; don't decrement n
 
-                ++i; // go to the next element
+            n--;
+
+            // is it the listener?
+            if (fds[i].fd == sock) {
+                // any sort of error on the listener
+                if (fds[i].revents & ~POLLIN) {
+                    std::cout << "[FATAL] Error on listener socket" << std::endl;
+                    terminate(0);
+                }
+
+                SOCKET newConnectionSocket = accept(sock, (struct sockaddr *)&address, (socklen_t*)&addressSize);
+                if (SOCKETINVALID(newConnectionSocket))
+                    continue;
+
+                if (!setSockNonblocking(sock, newConnectionSocket))
+                    continue;
+
+                std::cout << "New connection! " << inet_ntoa(address.sin_addr) << std::endl;
+
+                addPollFD(newConnectionSocket);
+
+                // add connection to list!
+                CNSocket* tmp = new CNSocket(newConnectionSocket, pHandler);
+                connections[newConnectionSocket] = tmp;
+                newConnection(tmp);
+
+            } else if (checkExtraSockets(i)) {
+                // no-op. handled in checkExtraSockets().
+
             } else {
-                killConnection(cSock);
-                connections.erase(i++);
-                delete cSock;
+                std::lock_guard<std::mutex> lock(activeCrit); // protect operations on connections
+
+                // player sockets
+                if (connections.find(fds[i].fd) == connections.end()) {
+                    std::cout << "[WARN] Event on non-existant socket?" << std::endl;
+                    continue; // just to be safe
+                }
+
+                CNSocket* cSock = connections[fds[i].fd];
+
+                // kill the socket on hangup/error
+                if (fds[i].revents & ~POLLIN)
+                    cSock->kill();
+
+                if (cSock->isAlive()) {
+                    cSock->step();
+                } else {
+                    killConnection(cSock);
+                    connections.erase(fds[i].fd);
+                    delete cSock;
+
+                    removePollFD(i);
+                }
             }
         }
 
         onStep();
-
-#ifdef _WIN32
-        Sleep(0);
-#else
-        sleep(0); // so your cpu isn't at 100% all the time, we don't need all of that! im not hacky! you're hacky!
-#endif
     }
 }
 
@@ -329,15 +387,11 @@ void CNServer::kill() {
     active = false;
 
     // kill all connections
-    std::list<CNSocket*>::iterator i = connections.begin();
-    while (i != connections.end()) {
-        CNSocket* cSock = *i;
-
-        if (cSock->isAlive()) {
+    for (auto& pair : connections) {
+        CNSocket *cSock = pair.second;
+        if (cSock->isAlive())
             cSock->kill();
-        }
 
-        ++i; // go to the next element
         delete cSock;
     }
 
@@ -366,6 +420,7 @@ void CNServer::printPacket(CNPacketData *data, int type) {
     std::cout << "OpenFusion: received " << Defines::p2str(type, data->type) << " (" << data->type << ")" << std::endl;
 }
 
+bool CNServer::checkExtraSockets(int i) { return false; } // stubbed
 void CNServer::newConnection(CNSocket* cns) {} // stubbed
 void CNServer::killConnection(CNSocket* cns) {} // stubbed
 void CNServer::onStep() {} // stubbed
