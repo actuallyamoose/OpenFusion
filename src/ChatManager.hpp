@@ -2,18 +2,32 @@
 
 #include "CNShardServer.hpp"
 
+extern "C" {
+#include "cvalue.h"
+}
+
 #define CMD_PREFIX '/'
 
 typedef void (*CommandHandler)(std::string fullString, std::vector<std::string>& args, CNSocket* sock);
 
 struct ChatCommand {
+    bool isCosmo; // if this command is ran through the cosmo VM
     int requiredAccLevel;
     std::string help;
-    CommandHandler handlr;
 
-    ChatCommand(int r, CommandHandler h): requiredAccLevel(r), handlr(h) {}
-    ChatCommand(int r, CommandHandler h, std::string str): requiredAccLevel(r), help(str), handlr(h) {}
+    union {
+        CommandHandler handlr;
+        CValue function;
+    };
+
+    // C++ command
+    ChatCommand(int r, CommandHandler h): isCosmo(false), requiredAccLevel(r), handlr(h) {}
+    ChatCommand(int r, CommandHandler h, std::string str): isCosmo(false), requiredAccLevel(r), help(str), handlr(h) {}
     ChatCommand(): ChatCommand(0, nullptr) {}
+
+    // Cosmo command
+    ChatCommand(int r, CValue func): isCosmo(true), requiredAccLevel(r), function(func) {}
+    ChatCommand(int r, CValue func, std::string str): isCosmo(true), requiredAccLevel(r), help(str), function(func) {}
 };
 
 namespace ChatManager {

@@ -14,6 +14,7 @@
 #include "ChunkManager.hpp"
 #include "GroupManager.hpp"
 #include "Monitor.hpp"
+#include "prototypes/CosmoManager.hpp"
 
 #include "settings.hpp"
 
@@ -101,6 +102,7 @@ int main() {
     BuddyManager::init();
     GroupManager::init();
     Database::open();
+    CosmoManager::init();
 
     switch (settings::EVENTMODE) {
     case 0: break; // no event
