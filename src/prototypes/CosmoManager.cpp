@@ -1,14 +1,7 @@
 #include "CosmoManager.hpp"
 
 #include "../CNShardServer.hpp"
-
-extern "C" {
-#include "cbaselib.h"
-#include "cvm.h"
-#include "cobj.h"
-#include "cparse.h"
-#include "cmem.h"
-}
+#include "cosmo.hpp"
 
 CState *CosmoManager::state = nullptr;
 
