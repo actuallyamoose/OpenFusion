@@ -7,6 +7,7 @@ extern "C" {
 #include "cvm.h"
 #include "cobj.h"
 #include "cparse.h"
+#include "cmem.h"
 }
 
 CState *CosmoManager::state = nullptr;
@@ -24,27 +25,31 @@ void ctimerHandler(CNServer* serv, time_t time, TimerEvent *event) {
 
 CValue registerTimer(CState *state, int nargs, CValue *args) {
     if (nargs != 2) {
-        cosmoV_error(state, "timer(): 2 arguments expected! %d given!", nargs);
+        cosmoV_error(state, "setTimer(): 2 arguments expected! %d given!", nargs);
         return cosmoV_newNil();
     }
 
     if (!IS_CLOSURE(args[0])) {
-        cosmoV_error(state, "timer(): first argument expected to be a function! %s given!", cosmoV_typeStr(args[0]));
+        cosmoV_error(state, "setTimer(): first argument expected to be a function! %s given!", cosmoV_typeStr(args[0]));
         return cosmoV_newNil();
     }
 
     if (!IS_NUMBER(args[1])) {
-        cosmoV_error(state, "timer(): second argument expected to be a number! %s given!", cosmoV_typeStr(args[1]));
+        cosmoV_error(state, "setTimer(): second argument expected to be a number! %s given!", cosmoV_typeStr(args[1]));
         return cosmoV_newNil();
     }
 
-    CObjFunction *func = (CObjFunction*)cosmoV_readObj(args[0]);
+    // grab the args
+    CObjClosure *func = (CObjClosure*)cosmoV_readObj(args[0]);
     int timer = (int)cosmoV_readNumber(args[1]);
 
+    // add timer
     TimerEvent event = TimerEvent(ctimerHandler, timer);
     event.userData = (void*)func;
-
     CNShardServer::Timers.push_back(event);
+
+    // mark the closure as a root so cosmo doesn't free it while we still have a reference to it
+    cosmoM_addRoot(state, (CObj*)func);
 
     return cosmoV_newNil();
 }
