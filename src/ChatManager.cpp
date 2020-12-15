@@ -14,6 +14,7 @@
 #include <math.h>
 
 std::map<std::string, ChatCommand> ChatManager::commands;
+std::vector<std::string> ChatManager::dump;
 
 std::vector<std::string> parseArgs(std::string full) {
     std::stringstream ss(full);
@@ -212,45 +213,17 @@ void summonWCommand(std::string full, std::vector<std::string>& args, CNSocket* 
     if (type >= 3314)
         return;
 
-    int team = NPCManager::NPCData[type]["m_iTeam"];
+    BaseNPC *npc = NPCManager::summonNPC(plr->x, plr->y, plr->z, plr->instanceID, type, true);
 
-    assert(NPCManager::nextId < INT32_MAX);
-
-#define EXTRA_HEIGHT 200
-    BaseNPC *npc = nullptr;
-    int id = NPCManager::nextId++;
-    if (team == 2) {
-        npc = new Mob(plr->x, plr->y, plr->z + EXTRA_HEIGHT, plr->instanceID, type, NPCManager::NPCData[type], id);
-        MobManager::Mobs[npc->appearanceData.iNPC_ID] = (Mob*)npc;
-
-        // re-enable respawning
-        ((Mob*)npc)->summoned = false;
-    } else {
-        npc = new BaseNPC(plr->x, plr->y, plr->z + EXTRA_HEIGHT, 0, plr->instanceID, type, id);
-    }
-
+    // update angle
     npc->appearanceData.iAngle = (plr->angle + 180) % 360;
-    NPCManager::NPCs[npc->appearanceData.iNPC_ID] = npc;
-
     NPCManager::updateNPCPosition(npc->appearanceData.iNPC_ID, plr->x, plr->y, plr->z, plr->instanceID, npc->appearanceData.iAngle);
 
     // if we're in a lair, we need to spawn the NPC in both the private instance and the template
     if (PLAYERID(plr->instanceID) != 0) {
-        id = NPCManager::nextId++;
-
-        if (team == 2) {
-            npc = new Mob(plr->x, plr->y, plr->z + EXTRA_HEIGHT, MAPNUM(plr->instanceID), type, NPCManager::NPCData[type], id);
-
-            MobManager::Mobs[npc->appearanceData.iNPC_ID] = (Mob*)npc;
-
-            ((Mob*)npc)->summoned = false;
-        } else {
-            npc = new BaseNPC(plr->x, plr->y, plr->z + EXTRA_HEIGHT, 0, MAPNUM(plr->instanceID), type, id);
-        }
+        npc = NPCManager::summonNPC(plr->x, plr->y, plr->z, plr->instanceID, type, true, true);
 
         npc->appearanceData.iAngle = (plr->angle + 180) % 360;
-        NPCManager::NPCs[npc->appearanceData.iNPC_ID] = npc;
-
         NPCManager::updateNPCPosition(npc->appearanceData.iNPC_ID, plr->x, plr->y, plr->z, npc->instanceID, npc->appearanceData.iAngle);
     }
 
@@ -577,15 +550,10 @@ void summonGroupCommand(std::string full, std::vector<std::string>& args, CNSock
 
     for (int i = 0; i < count; i++) {
         int team = NPCManager::NPCData[type]["m_iTeam"];
-        assert(NPCManager::nextId < INT32_MAX);
-
-#define EXTRA_HEIGHT 200
-        BaseNPC *npc = nullptr;
-        int id = NPCManager::nextId++;
-
         int x = plr->x;
         int y = plr->y;
         int z = plr->z;
+
         if (i > 0) {
             int angle = 360.0f / (count-1) * (i-1);
             if (count == 3)
@@ -598,11 +566,23 @@ void summonGroupCommand(std::string full, std::vector<std::string>& args, CNSock
             z = plr->z;
         }
 
-        if (team == 2) {
-            npc = new Mob(x, y, z + EXTRA_HEIGHT, plr->instanceID, type, NPCManager::NPCData[type], id);
-            MobManager::Mobs[npc->appearanceData.iNPC_ID] = (Mob*)npc;
+        BaseNPC *npc = NPCManager::summonNPC(x, y, z, plr->instanceID, type, wCommand);
+        if (team == 2 && i > 0) {
+            leadNpc->groupMember[i-1] = npc->appearanceData.iNPC_ID;
+            Mob* mob = MobManager::Mobs[npc->appearanceData.iNPC_ID];
+            mob->groupLeader = leadNpc->appearanceData.iNPC_ID;
+            mob->offsetX = x - plr->x;
+            mob->offsetY = y - plr->y;
+        }
 
-            if (i > 0) {
+        npc->appearanceData.iAngle = (plr->angle + 180) % 360;
+        NPCManager::updateNPCPosition(npc->appearanceData.iNPC_ID, x, y, z, plr->instanceID, npc->appearanceData.iAngle);
+
+        // if we're in a lair, we need to spawn the NPC in both the private instance and the template
+        if (PLAYERID(plr->instanceID) != 0) {
+            npc = NPCManager::summonNPC(plr->x, plr->y, plr->z, plr->instanceID, type, wCommand, true);
+
+            if (team == 2 && i > 0) {
                 leadNpc->groupMember[i-1] = npc->appearanceData.iNPC_ID;
                 Mob* mob = MobManager::Mobs[npc->appearanceData.iNPC_ID];
                 mob->groupLeader = leadNpc->appearanceData.iNPC_ID;
@@ -610,43 +590,7 @@ void summonGroupCommand(std::string full, std::vector<std::string>& args, CNSock
                 mob->offsetY = y - plr->y;
             }
 
-            // re-enable respawning
-            if (wCommand)
-                ((Mob*)npc)->summoned = false;
-        } else {
-            npc = new BaseNPC(x, y, z + EXTRA_HEIGHT, 0, plr->instanceID, type, id);
-        }
-
-        npc->appearanceData.iAngle = (plr->angle + 180) % 360;
-        NPCManager::NPCs[npc->appearanceData.iNPC_ID] = npc;
-
-        NPCManager::updateNPCPosition(npc->appearanceData.iNPC_ID, x, y, z, plr->instanceID, npc->appearanceData.iAngle);
-
-        // if we're in a lair, we need to spawn the NPC in both the private instance and the template
-        if (PLAYERID(plr->instanceID) != 0) {
-            id = NPCManager::nextId++;
-
-            if (team == 2) {
-                npc = new Mob(x, y, z + EXTRA_HEIGHT, MAPNUM(plr->instanceID), type, NPCManager::NPCData[type], id);
-
-                MobManager::Mobs[npc->appearanceData.iNPC_ID] = (Mob*)npc;
-
-                if (i > 0) {
-                    leadNpc->groupMember[i-1] = npc->appearanceData.iNPC_ID;
-                    Mob* mob = MobManager::Mobs[npc->appearanceData.iNPC_ID];
-                    mob->groupLeader = leadNpc->appearanceData.iNPC_ID;
-                    mob->offsetX = x - plr->x;
-                    mob->offsetY = y - plr->y;
-                }
-                if (wCommand)
-                    ((Mob*)npc)->summoned = false;
-            } else {
-                npc = new BaseNPC(x, y, z + EXTRA_HEIGHT, 0, MAPNUM(plr->instanceID), type, id);
-            }
-
             npc->appearanceData.iAngle = (plr->angle + 180) % 360;
-            NPCManager::NPCs[npc->appearanceData.iNPC_ID] = npc;
-
             NPCManager::updateNPCPosition(npc->appearanceData.iNPC_ID, x, y, z, plr->instanceID, npc->appearanceData.iAngle);
         }
 
@@ -815,6 +759,7 @@ void ChatManager::chatHandler(CNSocket* sock, CNPacketData* data) {
     std::string fullChat = sanitizeText(U16toU8(chat->szFreeChat));
 
     std::cout << "[FreeChat] " << PlayerManager::getPlayerName(plr, false) << ": " << fullChat << std::endl;
+    dump.push_back(PlayerManager::getPlayerName(plr, true) + ": " + fullChat);
 
     if (fullChat.length() > 1 && fullChat[0] == CMD_PREFIX) { // PREFIX
         runCmd(fullChat, sock);
@@ -844,6 +789,7 @@ void ChatManager::menuChatHandler(CNSocket* sock, CNPacketData* data) {
     std::string fullChat = sanitizeText(U16toU8(chat->szFreeChat));
 
     std::cout << "[MenuChat] " << PlayerManager::getPlayerName(plr, false) << ": " << fullChat << std::endl;
+    dump.push_back(PlayerManager::getPlayerName(plr, true) + ": " + fullChat);
 
     // send to client
     INITSTRUCT(sP_FE2CL_REP_SEND_MENUCHAT_MESSAGE_SUCC, resp);
@@ -921,6 +867,7 @@ void ChatManager::announcementHandler(CNSocket* sock, CNPacketData* data) {
     }
     
     std::cout << "[Bcast " << announcement->iAreaType << "] " << PlayerManager::getPlayerName(plr, false) << ": " << U16toU8(msg.szAnnounceMsg) << std::endl;
+    dump.push_back("**" + PlayerManager::getPlayerName(plr, true) + ": " + U16toU8(msg.szAnnounceMsg) + "**");
 }
 
 // we only allow plain ascii, at least for now
@@ -936,7 +883,7 @@ std::string ChatManager::sanitizeText(std::string text, bool allowNewlines) {
         if (!allowNewlines && c == '\n')
             continue;
 
-        if (c >= ' ' && c <= '~')
+        if ((c >= ' ' && c <= '~') || c == '\n')
             buf[i++] = c;
     }
     buf[i] = 0;

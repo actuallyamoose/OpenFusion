@@ -23,11 +23,13 @@ namespace settings {
     extern std::string DROPSJSON;
     extern std::string EGGSJSON;
     extern std::string GRUNTWORKJSON;
+    extern std::string DBPATH;
     extern int EVENTMODE;
     extern int EVENTCRATECHANCE;
     extern bool MONITORENABLED;
     extern int MONITORPORT;
     extern int MONITORINTERVAL;
+    extern bool DISABLEFIRSTUSEFLAG;
 
     void init();
 }

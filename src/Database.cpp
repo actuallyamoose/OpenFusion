@@ -1,15 +1,17 @@
 #include "Database.hpp"
 #include "Database.hpp"
-#include "contrib/bcrypt/BCrypt.hpp"
 #include "CNProtocol.hpp"
-#include <string>
-#include "contrib/JSON.hpp"
 #include "CNStructs.hpp"
 #include "settings.hpp"
 #include "Player.hpp"
 #include "CNStructs.hpp"
-#include "contrib/sqlite/sqlite_orm.h"
 #include "MissionManager.hpp"
+
+#include "contrib/JSON.hpp"
+#include "contrib/bcrypt/BCrypt.hpp"
+
+#include <string>
+#include <sqlite3.h>
 
 #if defined(__MINGW32__) && !defined(_GLIBCXX_HAS_GTHREADS)
     #include "mingw/mingw.mutex.h"
@@ -17,124 +19,24 @@
     #include <mutex>
 #endif
 
-using namespace sqlite_orm;
-
 std::mutex dbCrit;
-
-# pragma region DatabaseScheme
-auto db = make_storage("database.db",
-    make_table("Accounts",
-        make_column("AccountID", &Database::Account::AccountID, autoincrement(), primary_key()),
-        make_column("Login", &Database::Account::Login),
-        make_column("Password", &Database::Account::Password),
-        make_column("Selected", &Database::Account::Selected),
-        make_column("Created", &Database::Account::Created),
-        make_column("LastLogin", &Database::Account::LastLogin)
-    ),
-    make_table("Players",
-        make_column("PlayerID", &Database::DbPlayer::PlayerID, autoincrement(), primary_key()),
-        make_column("AccountID", &Database::DbPlayer::AccountID),
-        make_column("Slot", &Database::DbPlayer::slot),
-        make_column("Firstname", &Database::DbPlayer::FirstName, collate_nocase()),
-        make_column("LastName", &Database::DbPlayer::LastName, collate_nocase()),
-        make_column("Created", &Database::DbPlayer::Created),
-        make_column("LastLogin", &Database::DbPlayer::LastLogin),
-        make_column("Level", &Database::DbPlayer::Level),
-        make_column("Nano1", &Database::DbPlayer::Nano1),
-        make_column("Nano2", &Database::DbPlayer::Nano2),
-        make_column("Nano3", &Database::DbPlayer::Nano3),
-        make_column("AppearanceFlag", &Database::DbPlayer::AppearanceFlag),
-        make_column("TutorialFlag", &Database::DbPlayer::TutorialFlag),
-        make_column("PayZoneFlag", &Database::DbPlayer::PayZoneFlag),
-        make_column("XCoordinates", &Database::DbPlayer::x_coordinates),
-        make_column("YCoordinates", &Database::DbPlayer::y_coordinates),
-        make_column("ZCoordinates", &Database::DbPlayer::z_coordinates),
-        make_column("Angle", &Database::DbPlayer::angle),
-        make_column("Body", &Database::DbPlayer::Body),
-        make_column("Class", &Database::DbPlayer::Class),
-        make_column("EyeColor", &Database::DbPlayer::EyeColor),
-        make_column("FaceStyle", &Database::DbPlayer::FaceStyle),
-        make_column("Gender", &Database::DbPlayer::Gender),
-        make_column("HP", &Database::DbPlayer::HP),
-        make_column("HairColor", &Database::DbPlayer::HairColor),
-        make_column("HairStyle", &Database::DbPlayer::HairStyle),
-        make_column("Height", &Database::DbPlayer::Height),
-        make_column("NameCheck", &Database::DbPlayer::NameCheck),
-        make_column("SkinColor", &Database::DbPlayer::SkinColor),
-        make_column("AccountLevel", &Database::DbPlayer::AccountLevel),
-        make_column("FusionMatter", &Database::DbPlayer::FusionMatter),
-        make_column("Taros", &Database::DbPlayer::Taros),
-        make_column("Quests", &Database::DbPlayer::QuestFlag),
-        make_column("BatteryW", &Database::DbPlayer::BatteryW),
-        make_column("BatteryN", &Database::DbPlayer::BatteryN),
-        make_column("Mentor", &Database::DbPlayer::Mentor),
-        make_column("WarpLocationFlag", &Database::DbPlayer::WarpLocationFlag),
-        make_column("SkywayLocationFlag1", &Database::DbPlayer::SkywayLocationFlag1),
-        make_column("SkywayLocationFlag2", &Database::DbPlayer::SkywayLocationFlag2),
-        make_column("CurrentMissionID", &Database::DbPlayer::CurrentMissionID)
-    ),
-    make_table("Inventory",
-        make_column("PlayerId", &Database::Inventory::playerId),
-        make_column("Slot", &Database::Inventory::slot),
-        make_column("Id", &Database::Inventory::id),
-        make_column("Type", &Database::Inventory::Type),
-        make_column("Opt", &Database::Inventory::Opt),
-        make_column("TimeLimit", &Database::Inventory::TimeLimit)
-    ),
-    make_table("Nanos",
-        make_column("PlayerId", &Database::Nano::playerId),
-        make_column("Id", &Database::Nano::iID),
-        make_column("Skill", &Database::Nano::iSkillID),
-        make_column("Stamina", &Database::Nano::iStamina)
-    ),
-    make_table("RunningQuests",
-        make_column("PlayerId", &Database::DbQuest::PlayerId),
-        make_column("TaskId", &Database::DbQuest::TaskId),
-        make_column("RemainingNPCCount1", &Database::DbQuest::RemainingNPCCount1),
-        make_column("RemainingNPCCount2", &Database::DbQuest::RemainingNPCCount2),
-        make_column("RemainingNPCCount3", &Database::DbQuest::RemainingNPCCount3)
-    ),
-    make_table("Buddyships",
-        make_column("PlayerAId", &Database::Buddyship::PlayerAId),
-        make_column("PlayerBId", &Database::Buddyship::PlayerBId),
-        make_column("Status", &Database::Buddyship::Status)
-    ),
-    make_table("EmailData",
-        make_column("PlayerId", &Database::EmailData::PlayerId),
-        make_column("MsgIndex", &Database::EmailData::MsgIndex),
-        make_column("ReadFlag", &Database::EmailData::ReadFlag),
-        make_column("ItemFlag", &Database::EmailData::ItemFlag),
-        make_column("SenderId", &Database::EmailData::SenderId),
-        make_column("SenderFirstName", &Database::EmailData::SenderFirstName, collate_nocase()),
-        make_column("SenderLastName", &Database::EmailData::SenderLastName, collate_nocase()),
-        make_column("SubjectLine", &Database::EmailData::SubjectLine),
-        make_column("MsgBody", &Database::EmailData::MsgBody),
-        make_column("Taros", &Database::EmailData::Taros),
-        make_column("SendTime", &Database::EmailData::SendTime),
-        make_column("DeleteTime", &Database::EmailData::DeleteTime)
-    ),
-    make_table("EmailItems",
-        make_column("PlayerId", &Database::EmailItem::PlayerId),
-        make_column("MsgIndex", &Database::EmailItem::MsgIndex),
-        make_column("Slot", &Database::EmailItem::Slot),
-        make_column("Id", &Database::EmailItem::Id),
-        make_column("Type", &Database::EmailItem::Type),
-        make_column("Opt", &Database::EmailItem::Opt),
-        make_column("TimeLimit", &Database::EmailItem::TimeLimit)
-    )
-);
-
-# pragma endregion DatabaseScheme
-
-#pragma region LoginServer
+sqlite3* db;
 
 void Database::open() {
-    // this parameter means it will try to preserve data during migration
-    bool preserve = true;
-    db.sync_schema(preserve);
+    int rc = sqlite3_open(settings::DBPATH.c_str(), &db);
+    if (rc != SQLITE_OK) {
+        std::cout << "[FATAL] Cannot open database: " << sqlite3_errmsg(db) << std::endl;
+        exit(1);
+    }
+
+    // foreign keys in sqlite are off by default; enable them
+    sqlite3_exec(db, "PRAGMA foreign_keys=ON;", NULL, NULL, NULL);
+    checkMetaTable();
+    createTables();
+
     std::cout << "[INFO] Database in operation ";
-    int accounts = getAccountsCount();
-    int players = getPlayersCount();
+    int accounts = getTableSize("Accounts");
+    int players = getTableSize("Players");
     std::string message = "";
     if (accounts > 0) {
         message += ": Found " + std::to_string(accounts) + " Account";
@@ -149,626 +51,1319 @@ void Database::open() {
     std::cout << message << std::endl;
 }
 
-int Database::getAccountsCount() {
-    return db.count<Account>();
+void Database::close() {
+    sqlite3_close(db);
 }
 
-int Database::getPlayersCount() {
-    return db.count<DbPlayer>();
+void Database::checkMetaTable() {
+    // first check if meta table exists
+    const char* sql = R"(
+        SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='Meta';
+        )";
+    sqlite3_stmt* stmt;
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    if (sqlite3_step(stmt) != SQLITE_ROW) {
+        sqlite3_finalize(stmt);
+        std::cout << "[FATAL] Failed to check meta table"  << std::endl;
+        exit(1);
+    }
+
+    int count = sqlite3_column_int(stmt, 0);
+    if (count == 0) {
+        // check if there's other non-internal tables first
+        sql = R"(
+            SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%';
+            )";
+        sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+        if (sqlite3_step(stmt) != SQLITE_ROW || sqlite3_column_int(stmt, 0) != 0) {
+            sqlite3_finalize(stmt);
+            std::cout << "[FATAL] Existing DB is outdated" << std::endl;
+            exit(1);
+        }
+
+        // create meta table
+        sqlite3_finalize(stmt);
+        return createMetaTable();
+    }
+
+    // check protocol version
+    sql = R"(
+        SELECT Value FROM Meta WHERE Key = 'ProtocolVersion';
+        )";
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+
+    if (sqlite3_step(stmt) != SQLITE_ROW) {
+        sqlite3_finalize(stmt);
+        std::cout << "[FATAL] Failed to check DB Protocol Version" << std::endl;
+        exit(1);
+    }
+
+    if (sqlite3_column_int(stmt, 0) != PROTOCOL_VERSION) {
+        sqlite3_finalize(stmt);
+        std::cout << "[FATAL] DB Protocol Version doesn't match Server Build" << std::endl;
+        exit(1);
+    }
+
+    sql = R"(
+        SELECT Value FROM Meta WHERE Key = 'DatabaseVersion';
+        )";
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+
+    if (sqlite3_step(stmt) != SQLITE_ROW) {
+        std::cout << "[FATAL] Failed to check DB Version" << std::endl;
+        sqlite3_finalize(stmt);
+        exit(1);
+    }
+
+    int dbVersion = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+
+    if (dbVersion != DATABASE_VERSION) {
+        // we should be handling migrations here in the future
+        std::cout << "[FATAL] DB Version doesn't match Server Build" << std::endl;
+        exit(1);
+    }
+}
+
+void Database::createMetaTable() {
+    std::lock_guard<std::mutex> lock(dbCrit);
+
+    sqlite3_exec(db, "BEGIN TRANSACTION;", NULL, NULL, NULL);
+
+    const char* sql = R"(
+        CREATE TABLE Meta(
+            Key TEXT NOT NULL UNIQUE,
+            Value INTEGER NOT NULL,
+            Created	INTEGER DEFAULT (strftime('%s', 'now'))
+        );
+        )";
+    sqlite3_stmt* stmt;
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        sqlite3_exec(db, "ROLLBACK TRANSACTION;", NULL, NULL, NULL);
+        std::cout << "[FATAL] Failed to create meta table" << std::endl;
+        exit(1);
+    }
+
+    sql = R"(
+        INSERT INTO Meta (Key, Value)
+        VALUES (?, ?);
+        )";
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_text(stmt, 1, "ProtocolVersion", -1, NULL);
+    sqlite3_bind_int(stmt, 2, PROTOCOL_VERSION);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        sqlite3_exec(db, "ROLLBACK TRANSACTION;", NULL, NULL, NULL);
+        std::cout << "[FATAL] Failed to create meta table" << std::endl;
+        exit(1);
+    }
+
+    sqlite3_reset(stmt);
+    sqlite3_bind_text(stmt, 1, "DatabaseVersion", -1, NULL);
+    sqlite3_bind_int(stmt, 2, DATABASE_VERSION);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    if (rc != SQLITE_DONE) {
+        sqlite3_exec(db, "ROLLBACK TRANSACTION;", NULL, NULL, NULL);
+        std::cout << "[FATAL] Failed to create meta table" << std::endl;
+        exit(1);
+    }
+
+    sqlite3_exec(db, "COMMIT;", NULL, NULL, NULL);
+    std::cout << "[INFO] Created new meta table" << std::endl;
+}
+
+void Database::createTables() {
+    std::lock_guard<std::mutex> lock(dbCrit);
+
+    char* errMsg = 0;
+    const char* sql;
+
+    sql = R"(
+        CREATE TABLE IF NOT EXISTS Accounts (
+            AccountID    INTEGER NOT NULL,
+            Login        TEXT    NOT NULL UNIQUE,
+            Password     TEXT    NOT NULL,
+            Selected     INTEGER  DEFAULT 1 NOT NULL,
+            AccountLevel INTEGER NOT NULL,
+            Created      INTEGER DEFAULT (strftime('%s', 'now')) NOT NULL,
+            LastLogin    INTEGER DEFAULT (strftime('%s', 'now')) NOT NULL,
+            BannedUntil  INTEGER DEFAULT 0 NOT NULL,
+            BannedSince  INTEGER DEFAULT 0 NOT NULL,
+            PRIMARY KEY(AccountID AUTOINCREMENT)
+        );
+
+        CREATE TABLE IF NOT EXISTS Players (
+            PlayerID           INTEGER NOT NULL,
+            AccountID          INTEGER NOT NULL,
+            FirstName          TEXT NOT NULL COLLATE NOCASE,
+            LastName           TEXT NOT NULL COLLATE NOCASE,
+            NameCheck          INTEGER NOT NULL,
+            Slot               INTEGER NOT NULL,
+            Created            INTEGER DEFAULT (strftime('%s', 'now')) NOT NULL,
+            LastLogin          INTEGER DEFAULT (strftime('%s', 'now')) NOT NULL,
+            Level              INTEGER DEFAULT 1 NOT NULL,
+            Nano1              INTEGER DEFAULT 0 NOT NULL,
+            Nano2              INTEGER DEFAULT 0 NOT NULL,
+            Nano3              INTEGER DEFAULT 0 NOT NULL,
+            AppearanceFlag     INTEGER DEFAULT 0 NOT NULL,
+            TutorialFlag       INTEGER DEFAULT 0 NOT NULL,
+            PayZoneFlag        INTEGER DEFAULT 0 NOT NULL,
+            XCoordinates       INTEGER NOT NULL,
+            YCoordinates       INTEGER NOT NULL,
+            ZCoordinates       INTEGER NOT NULL,
+            Angle              INTEGER NOT NULL,
+            HP                 INTEGER NOT NULL,
+            FusionMatter       INTEGER DEFAULT 0 NOT NULL,
+            Taros              INTEGER DEFAULT 0 NOT NULL,
+            BatteryW           INTEGER DEFAULT 0 NOT NULL,
+            BatteryN           INTEGER DEFAULT 0 NOT NULL,
+            Mentor             INTEGER DEFAULT 5 NOT NULL,
+            CurrentMissionID   INTEGER DEFAULT 0 NOT NULL,
+            WarpLocationFlag   INTEGER DEFAULT 0 NOT NULL,
+            SkywayLocationFlag BLOB NOT NULL,
+            FirstUseFlag       BLOB NOT NULL,
+            Quests             BLOB NOT NULL,
+            PRIMARY KEY(PlayerID AUTOINCREMENT),
+            FOREIGN KEY(AccountID) REFERENCES Accounts(AccountID) ON DELETE CASCADE,
+            UNIQUE (AccountID, Slot),
+            UNIQUE (FirstName, LastName)
+        );
+
+        CREATE TABLE IF NOT EXISTS Appearances (
+            PlayerID    INTEGER UNIQUE NOT NULL,
+            Body        INTEGER DEFAULT 0 NOT NULL,
+            EyeColor    INTEGER DEFAULT 1 NOT NULL,
+            FaceStyle   INTEGER DEFAULT 1 NOT NULL,
+            Gender      INTEGER DEFAULT 1 NOT NULL,
+            HairColor   INTEGER DEFAULT 1 NOT NULL,
+            HairStyle   INTEGER DEFAULT 1 NOT NULL,
+            Height      INTEGER DEFAULT 0 NOT NULL,
+            SkinColor   INTEGER DEFAULT 1 NOT NULL,
+            FOREIGN KEY(PlayerID) REFERENCES Players(PlayerID) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS Inventory (
+            PlayerID    INTEGER NOT NULL,
+            Slot        INTEGER NOT NULL,
+            ID          INTEGER NOT NULL,
+            Type        INTEGER NOT NULL,
+            Opt         INTEGER NOT NULL,
+            TimeLimit   INTEGER DEFAULT 0 NOT NULL,
+            FOREIGN KEY(PlayerID) REFERENCES Players(PlayerID) ON DELETE CASCADE,
+            UNIQUE (PlayerID, Slot)
+        );
+
+        CREATE TABLE IF NOT EXISTS QuestItems (
+            PlayerID    INTEGER NOT NULL,
+            Slot        INTEGER NOT NULL,
+            ID          INTEGER NOT NULL,
+            Opt         INTEGER NOT NULL,
+            FOREIGN KEY(PlayerID) REFERENCES Players(PlayerID) ON DELETE CASCADE,
+            UNIQUE (PlayerID, Slot)
+        );
+
+        CREATE TABLE IF NOT EXISTS Nanos (
+            PlayerID    INTEGER NOT NULL,
+            ID          INTEGER NOT NULL,
+            Skill       INTEGER NOT NULL,
+            Stamina     INTEGER DEFAULT 150 NOT NULL,
+            FOREIGN KEY(PlayerID) REFERENCES Players(PlayerID) ON DELETE CASCADE,
+            UNIQUE (PlayerID, ID)
+        );
+
+        CREATE TABLE IF NOT EXISTS RunningQuests (
+            PlayerID              INTEGER NOT NULL,
+            TaskID                INTEGER NOT NULL,
+            RemainingNPCCount1    INTEGER NOT NULL,
+            RemainingNPCCount2    INTEGER NOT NULL,
+            RemainingNPCCount3    INTEGER NOT NULL,
+            FOREIGN KEY(PlayerID) REFERENCES Players(PlayerID) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS Buddyships (
+            PlayerAID    INTEGER NOT NULL,
+            PlayerBID    INTEGER NOT NULL,
+            FOREIGN KEY(PlayerAID) REFERENCES Players(PlayerID) ON DELETE CASCADE,
+            FOREIGN KEY(PlayerBID) REFERENCES Players(PlayerID) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS Blocks (
+            PlayerID           INTEGER NOT NULL,
+            BlockedPlayerID    INTEGER NOT NULL,
+            FOREIGN KEY(PlayerID)        REFERENCES Players(PlayerID) ON DELETE CASCADE,
+            FOREIGN KEY(BlockedPlayerID) REFERENCES Players(PlayerID) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS EmailData (
+            PlayerID        INTEGER NOT NULL,
+            MsgIndex        INTEGER NOT NULL,
+            ReadFlag        INTEGER NOT NULL,
+            ItemFlag        INTEGER NOT NULL,
+            SenderID        INTEGER NOT NULL,
+            SenderFirstName TEXT NOT NULL COLLATE NOCASE,
+            SenderLastName  TEXT NOT NULL COLLATE NOCASE,
+            SubjectLine     TEXT NOT NULL,
+            MsgBody         TEXT NOT NULL,
+            Taros           INTEGER NOT NULL,
+            SendTime        INTEGER NOT NULL,
+            DeleteTime      INTEGER NOT NULL,
+            FOREIGN KEY(PlayerID) REFERENCES Players(PlayerID) ON DELETE CASCADE,
+            UNIQUE(PlayerID, MsgIndex)
+        );
+
+        CREATE TABLE IF NOT EXISTS EmailItems (
+            PlayerID    INTEGER NOT NULL,
+            MsgIndex    INTEGER NOT NULL,
+            Slot        INTEGER NOT NULL,
+            ID          INTEGER NOT NULL,
+            Type        INTEGER NOT NULL,
+            Opt         INTEGER NOT NULL,
+            TimeLimit   INTEGER NOT NULL,
+            FOREIGN KEY(PlayerID) REFERENCES Players(PlayerID) ON DELETE CASCADE,
+            UNIQUE (MsgIndex, Slot)
+        );
+
+        CREATE TABLE IF NOT EXISTS RaceResults(
+            EPID      INTEGER NOT NULL,
+            PlayerID  INTEGER NOT NULL,
+            Score     INTEGER NOT NULL,
+            Timestamp INTEGER NOT NULL,
+            FOREIGN KEY(PlayerID) REFERENCES Players(PlayerID) ON DELETE CASCADE
+        );
+        )";
+
+    int rc = sqlite3_exec(db, sql, NULL, NULL, &errMsg);
+    if (rc != SQLITE_OK) {
+        std::cout << "[FATAL] Database failed to create tables: " << errMsg << std::endl;
+        exit(1);
+    }
+}
+
+int Database::getTableSize(std::string tableName) {
+    std::lock_guard<std::mutex> lock(dbCrit);
+
+    const char* sql = "SELECT COUNT(*) FROM ?";
+    sqlite3_stmt* stmt;
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_text(stmt, 1, tableName.c_str(), -1, NULL);
+    sqlite3_step(stmt);
+    int result = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+    return result;
+}
+
+void Database::findAccount(Account* account, std::string login) {
+    std::lock_guard<std::mutex> lock(dbCrit);
+
+    const char* sql = R"(
+        SELECT AccountID, Password, Selected, BannedUntil
+        FROM Accounts
+        WHERE Login = ?
+        LIMIT 1;
+        )";
+    sqlite3_stmt* stmt;
+
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_text(stmt, 1, login.c_str(), -1, NULL);
+    int rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) {
+        account->AccountID = sqlite3_column_int(stmt, 0);
+        account->Password = std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)));
+        account->Selected = sqlite3_column_int(stmt, 2);
+        account->BannedUntil = sqlite3_column_int64(stmt, 3);
+    }
+    sqlite3_finalize(stmt);
 }
 
 int Database::addAccount(std::string login, std::string password) {
     std::lock_guard<std::mutex> lock(dbCrit);
 
-    password = BCrypt::generateHash(password);
-    Account account = {};
-    account.Login = login;
-    account.Password = password;
-    account.Selected = 1;
-    account.Created = getTimestamp();
-    account.LastLogin = account.Created;
-    return db.insert(account);
+    const char* sql = R"(
+        INSERT INTO Accounts (Login, Password, AccountLevel)
+        VALUES (?, ?, ?);
+        )";
+    sqlite3_stmt* stmt;
+
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_text(stmt, 1, login.c_str(), -1, NULL);
+    std::string hashedPassword = BCrypt::generateHash(password);
+    sqlite3_bind_text(stmt, 2, hashedPassword.c_str(), -1, NULL);
+    sqlite3_bind_int(stmt, 3, settings::ACCLEVEL);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    if (rc != SQLITE_DONE) {
+        std::cout << "[WARN] Database: failed to add new account" << std::endl;
+        return 0;
+    }
+    return sqlite3_last_insert_rowid(db);
+}
+
+void Database::banAccount(int accountId, int days) {
+    std::lock_guard<std::mutex> lock(dbCrit);
+
+    const char* sql = R"(
+        UPDATE Accounts SET
+            BannedSince = (strftime('%s', 'now')),
+            BannedUntil = (strftime('%s', 'now')) + ?
+        WHERE AccountID = ?;
+        )";
+    sqlite3_stmt* stmt;
+
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, days * 86400); // convert days to seconds
+    sqlite3_bind_int(stmt, 2, accountId);
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        std::cout << "[WARN] Database: failed to ban player" << std::endl;
+    }
+    sqlite3_finalize(stmt);
 }
 
 void Database::updateSelected(int accountId, int slot) {
     std::lock_guard<std::mutex> lock(dbCrit);
 
-    Account acc = db.get<Account>(accountId);
-    acc.Selected = slot;
-    // timestamp
-    acc.LastLogin = getTimestamp();
-    db.update(acc);
-}
+    if (slot < 1 || slot > 4) {
+        std::cout << "[WARN] Invalid slot number passed to updateSelected()! " << std::endl;
+        return;
+    }
 
-std::unique_ptr<Database::Account> Database::findAccount(std::string login) {
-    std::lock_guard<std::mutex> lock(dbCrit);
+    const char* sql = R"(
+        UPDATE Accounts SET
+            Selected = ?,
+            LastLogin = (strftime('%s', 'now'))
+        WHERE AccountID = ?;
+        )";
 
-    // this is awful, I've tried everything to improve it
-    auto find = db.get_all<Account>(
-        where(c(&Account::Login) == login), limit(1));
-    if (find.empty())
-        return nullptr;
-    return
-        std::unique_ptr<Account>(new Account(find.front()));
+    sqlite3_stmt* stmt;
+
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, slot);
+    sqlite3_bind_int(stmt, 2, accountId);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    if (rc != SQLITE_DONE)
+        std::cout << "[WARN] Database fail on updateSelected(). Error Code " << rc << std::endl;
 }
 
 bool Database::validateCharacter(int characterID, int userID) {
-    return db.select(&DbPlayer::PlayerID,
-        where((c(&DbPlayer::PlayerID) == characterID) && (c(&DbPlayer::AccountID) == userID)))
-        .size() > 0;
+    std::lock_guard<std::mutex> lock(dbCrit);
+
+    // query whatever
+    const char* sql = R"(
+        SELECT PlayerID
+        FROM Players
+        WHERE PlayerID = ? AND AccountID = ?
+        LIMIT 1;
+        )";
+    sqlite3_stmt* stmt;
+
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, characterID);
+    sqlite3_bind_int(stmt, 2, userID);
+    int rc = sqlite3_step(stmt);
+    // if we got a row back, the character is valid
+    bool result = (rc == SQLITE_ROW);
+    sqlite3_finalize(stmt);
+    return result;
 }
 
 bool Database::isNameFree(std::string firstName, std::string lastName) {
     std::lock_guard<std::mutex> lock(dbCrit);
 
-    return
-        (db.get_all<DbPlayer>
-            (where((c(&DbPlayer::FirstName) == firstName)
-                and (c(&DbPlayer::LastName) == lastName)))
-            .empty());
+    const char* sql = R"(
+        SELECT COUNT(*)
+        FROM Players
+        WHERE FirstName = ? AND LastName = ?
+        LIMIT 1;
+        )";
+    sqlite3_stmt* stmt;
+
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_text(stmt, 1, firstName.c_str(), -1, NULL);
+    sqlite3_bind_text(stmt, 2, lastName.c_str(),  -1, NULL);
+    int rc = sqlite3_step(stmt);
+
+    bool result = (rc == SQLITE_ROW && sqlite3_column_int(stmt, 0) == 0);
+    sqlite3_finalize(stmt);
+    return result;
 }
 
 bool Database::isSlotFree(int accountId, int slotNum) {
     std::lock_guard<std::mutex> lock(dbCrit);
 
-    return
-        (db.get_all<DbPlayer>
-            (where((c(&DbPlayer::AccountID) == accountId)
-                and (c(&DbPlayer::slot) == slotNum)))
-            .empty());
+    if (slotNum < 1 || slotNum > 4) {
+        std::cout << "[WARN] Invalid slot number passed to isSlotFree()! "<<slotNum << std::endl;
+        return false;
+    }
+
+    const char* sql = R"(
+        SELECT COUNT(*)
+        FROM Players
+        WHERE AccountID = ? AND Slot = ?
+        LIMIT 1;
+        )";
+    sqlite3_stmt* stmt;
+
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, accountId);
+    sqlite3_bind_int(stmt, 2, slotNum);
+    int rc = sqlite3_step(stmt);
+
+    bool result = (rc == SQLITE_ROW && sqlite3_column_int(stmt, 0) == 0);
+    sqlite3_finalize(stmt);
+    return result;
 }
 
 int Database::createCharacter(sP_CL2LS_REQ_SAVE_CHAR_NAME* save, int AccountID) {
     std::lock_guard<std::mutex> lock(dbCrit);
 
-    // fail if the player already has 4 or more characters
-    if (db.count<DbPlayer>(where(c(&DbPlayer::AccountID) == AccountID)) >= 4)
-        return -1;
+    sqlite3_exec(db, "BEGIN TRANSACTION;", NULL, NULL, NULL);
 
-    DbPlayer create = {};
+    const char* sql = R"(
+        INSERT INTO Players
+            (AccountID, Slot, FirstName, LastName,
+             XCoordinates, YCoordinates, ZCoordinates, Angle,
+             HP, NameCheck, Quests, SkywayLocationFlag, FirstUseFlag)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        )";
+    sqlite3_stmt* stmt;
+    std::string firstName = U16toU8(save->szFirstName);
+    std::string lastName =  U16toU8(save->szLastName);
 
-    // set timestamp
-    create.Created = getTimestamp();
-    // save packet data
-    create.FirstName = U16toU8(save->szFirstName);
-    create.LastName = U16toU8(save->szLastName);
-    create.slot = save->iSlotNum;
-    create.AccountID = AccountID;
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, AccountID);
+    sqlite3_bind_int(stmt, 2, save->iSlotNum);
+    sqlite3_bind_text(stmt, 3, firstName.c_str(), -1, NULL);
+    sqlite3_bind_text(stmt, 4, lastName.c_str(), -1, NULL);
+    sqlite3_bind_int(stmt, 5, settings::SPAWN_X);
+    sqlite3_bind_int(stmt, 6, settings::SPAWN_Y);
+    sqlite3_bind_int(stmt, 7, settings::SPAWN_Z);
+    sqlite3_bind_int(stmt, 8, settings::SPAWN_ANGLE);
+    sqlite3_bind_int(stmt, 9, PC_MAXHEALTH(1));
 
-    // set flags
-    create.AppearanceFlag = 0;
-    create.TutorialFlag = 0;
-    create.PayZoneFlag = 0;
+    // if FNCode isn't 0, it's a wheel name
+    int nameCheck = (settings::APPROVEALLNAMES || save->iFNCode) ? 1 : 0;
+    sqlite3_bind_int(stmt, 10, nameCheck);
 
-    // set namecheck based on setting
-    if (settings::APPROVEALLNAMES || save->iFNCode)
-        create.NameCheck = 1;
-    else
-        create.NameCheck = 0;
+    // blobs
+    unsigned char blobBuffer[sizeof(Player::aQuestFlag)] = { 0 };
+    sqlite3_bind_blob(stmt, 11, blobBuffer, sizeof(Player::aQuestFlag), NULL);
+    sqlite3_bind_blob(stmt, 12, blobBuffer, sizeof(Player::aSkywayLocationFlag), NULL);
+    sqlite3_bind_blob(stmt, 13, blobBuffer, sizeof(Player::iFirstUseFlag), NULL);
 
-    // create default body character
-    create.Body = 0;
-    create.Class = 0;
-    create.EyeColor = 1;
-    create.FaceStyle = 1;
-    create.Gender = 1;
-    create.Level = 1;
-    create.HP = PC_MAXHEALTH(create.Level);
-    create.HairColor = 1;
-    create.HairStyle = 1;
-    create.Height = 0;
-    create.SkinColor = 1;
-    create.AccountLevel = settings::ACCLEVEL;
-    create.x_coordinates = settings::SPAWN_X;
-    create.y_coordinates = settings::SPAWN_Y;
-    create.z_coordinates = settings::SPAWN_Z;
-    create.angle = settings::SPAWN_ANGLE;
-    // set mentor to computress
-    create.Mentor = 5;
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        sqlite3_exec(db, "ROLLBACK TRANSACTION;", NULL, NULL, NULL);
+        return 0;
+    }
 
-    // initialize the quest blob to 128 0-bytes
-    create.QuestFlag = std::vector<char>(128, 0);
+    int playerId = sqlite3_last_insert_rowid(db);
 
-    return db.insert(create);
+    sql = R"(
+        INSERT INTO Appearances (PlayerID)
+        VALUES (?);
+        )";
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, playerId);
+
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) {
+        sqlite3_exec(db, "ROLLBACK TRANSACTION;", NULL, NULL, NULL);
+        return 0;
+    }
+
+    sqlite3_exec(db, "COMMIT;", NULL, NULL, NULL);
+    return playerId;
 }
 
-void Database::finishCharacter(sP_CL2LS_REQ_CHAR_CREATE* character) {
+bool Database::finishCharacter(sP_CL2LS_REQ_CHAR_CREATE* character, int accountId) {
     std::lock_guard<std::mutex> lock(dbCrit);
 
-    DbPlayer finish = getDbPlayerById(character->PCStyle.iPC_UID);
-    finish.AppearanceFlag = 1;
-    finish.Body = character->PCStyle.iBody;
-    finish.Class = character->PCStyle.iClass;
-    finish.EyeColor = character->PCStyle.iEyeColor;
-    finish.FaceStyle = character->PCStyle.iFaceStyle;
-    finish.Gender = character->PCStyle.iGender;
-    finish.HairColor = character->PCStyle.iHairColor;
-    finish.HairStyle = character->PCStyle.iHairStyle;
-    finish.Height = character->PCStyle.iHeight;
-    finish.Level = 1;
-    finish.SkinColor = character->PCStyle.iSkinColor;
-    db.update(finish);
-    // clothes
-    Inventory Foot, LB, UB;
-    Foot.playerId = character->PCStyle.iPC_UID;
-    Foot.id = character->sOn_Item.iEquipFootID;
-    Foot.Type = 3;
-    Foot.slot = 3;
-    Foot.Opt = 1;
-    Foot.TimeLimit = 0;
-    db.insert(Foot);
-    LB.playerId = character->PCStyle.iPC_UID;
-    LB.id = character->sOn_Item.iEquipLBID;
-    LB.Type = 2;
-    LB.slot = 2;
-    LB.Opt = 1;
-    LB.TimeLimit = 0;
-    db.insert(LB);
-    UB.playerId = character->PCStyle.iPC_UID;
-    UB.id = character->sOn_Item.iEquipUBID;
-    UB.Type = 1;
-    UB.slot = 1;
-    UB.Opt = 1;
-    UB.TimeLimit = 0;
-    db.insert(UB);
+    sqlite3_exec(db, "BEGIN TRANSACTION;", NULL, NULL, NULL);
+
+    const char* sql = R"(
+        UPDATE Players
+        SET AppearanceFlag = 1
+        WHERE PlayerID = ? AND AccountID = ? AND AppearanceFlag = 0;
+        )";
+    sqlite3_stmt* stmt;
+
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, character->PCStyle.iPC_UID);
+    sqlite3_bind_int(stmt, 2, accountId);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        sqlite3_exec(db, "ROLLBACK TRANSACTION;", NULL, NULL, NULL);
+        return false;
+    }
+
+    sql = R"(
+        UPDATE Appearances
+        SET
+            Body = ?,
+            EyeColor = ?,
+            FaceStyle = ?,
+            Gender = ?,
+            HairColor = ?,
+            HairStyle = ?,
+            Height = ?,
+            SkinColor = ?
+        WHERE PlayerID = ?;
+        )";
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+
+    sqlite3_bind_int(stmt, 1, character->PCStyle.iBody);
+    sqlite3_bind_int(stmt, 2, character->PCStyle.iEyeColor);
+    sqlite3_bind_int(stmt, 3, character->PCStyle.iFaceStyle);
+    sqlite3_bind_int(stmt, 4, character->PCStyle.iGender);
+    sqlite3_bind_int(stmt, 5, character->PCStyle.iHairColor);
+    sqlite3_bind_int(stmt, 6, character->PCStyle.iHairStyle);
+    sqlite3_bind_int(stmt, 7, character->PCStyle.iHeight);
+    sqlite3_bind_int(stmt, 8, character->PCStyle.iSkinColor);
+    sqlite3_bind_int(stmt, 9, character->PCStyle.iPC_UID);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        sqlite3_exec(db, "ROLLBACK TRANSACTION;", NULL, NULL, NULL);
+        return false;
+    }
+
+    sql = R"(
+        INSERT INTO Inventory (PlayerID, Slot, ID, Type, Opt)
+        VALUES (?, ?, ?, ?, 1);
+        )";
+    sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+
+    int items[3] = { character->sOn_Item.iEquipUBID, character->sOn_Item.iEquipLBID, character->sOn_Item.iEquipFootID };
+    for (int i = 0; i < 3; i++) {
+        sqlite3_bind_int(stmt, 1, character->PCStyle.iPC_UID);
+        sqlite3_bind_int(stmt, 2, i+1);
+        sqlite3_bind_int(stmt, 3, items[i]);
+        sqlite3_bind_int(stmt, 4, i+1);
+
+        if (sqlite3_step(stmt) != SQLITE_DONE) {
+            sqlite3_finalize(stmt);
+            sqlite3_exec(db, "ROLLBACK TRANSACTION;", NULL, NULL, NULL);
+            return false;
+        }
+        sqlite3_reset(stmt);
+    }
+
+    sqlite3_finalize(stmt);
+    sqlite3_exec(db, "COMMIT;", NULL, NULL, NULL);
+    return true;
 }
 
-void Database::finishTutorial(int PlayerID) {
+bool Database::finishTutorial(int playerID, int accountID) {
     std::lock_guard<std::mutex> lock(dbCrit);
 
-    Player finish = getPlayer(PlayerID);
-    // set flag
-    finish.PCStyle2.iTutorialFlag= 1;
-    // add Gun
-    Inventory LightningGun = {};
-    LightningGun.playerId = PlayerID;
-    LightningGun.id = 328;
-    LightningGun.slot = 0;
-    LightningGun.Type = 0;
-    LightningGun.Opt = 1;
-    db.insert(LightningGun);
-    // add Nano
-    Nano Buttercup = {};
-    Buttercup.playerId = PlayerID;
-    Buttercup.iID = 1;
-    Buttercup.iSkillID = 1;
-    Buttercup.iStamina = 150;
-    finish.equippedNanos[0] = 1;
-    db.insert(Buttercup);
-    // save missions
-    MissionManager::saveMission(&finish, 0);
-    MissionManager::saveMission(&finish, 1);
+    sqlite3_exec(db, "BEGIN TRANSACTION;", NULL, NULL, NULL);
 
-    db.update(playerToDb(&finish));
+    const char* sql = R"(
+        UPDATE Players SET
+            TutorialFlag = 1,
+            Nano1 = 1,
+            Quests = ?
+        WHERE PlayerID = ? AND AccountID = ? AND TutorialFlag = 0;
+        )";
+    sqlite3_stmt* stmt;
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+
+    // save missions nr 1 & 2
+    unsigned char questBuffer[128] = { 0 };
+    questBuffer[0] = 3;
+    sqlite3_bind_blob(stmt, 1, questBuffer, sizeof(questBuffer), NULL);
+    sqlite3_bind_int(stmt, 2, playerID);
+    sqlite3_bind_int(stmt, 3, accountID);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        sqlite3_exec(db, "ROLLBACK TRANSACTION;", NULL, NULL, NULL);
+        return false;
+    }
+
+    // Lightning Gun
+    sql = R"(
+        INSERT INTO Inventory
+            (PlayerID, Slot, ID, Type, Opt)
+        VALUES (?, 0, 328, 0, 1);
+        )";
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+
+    sqlite3_bind_int(stmt, 1, playerID);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        sqlite3_exec(db, "ROLLBACK TRANSACTION;", NULL, NULL, NULL);
+        return false;
+    }
+
+    // Nano Buttercup
+    sql = R"(
+        INSERT INTO Nanos
+            (PlayerID, ID, Skill)
+        VALUES (?, 1, 1);
+        )";
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+
+    sqlite3_bind_int(stmt, 1, playerID);
+
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    if (rc != SQLITE_DONE) {
+        sqlite3_exec(db, "ROLLBACK TRANSACTION;", NULL, NULL, NULL);
+        return false;
+    }
+
+    sqlite3_exec(db, "COMMIT;", NULL, NULL, NULL);
+    return true;
 }
 
 int Database::deleteCharacter(int characterID, int userID) {
     std::lock_guard<std::mutex> lock(dbCrit);
 
-    auto find =
-        db.get_all<DbPlayer>(where(c(&DbPlayer::PlayerID) == characterID and c(&DbPlayer::AccountID)==userID));
-    int slot = find.front().slot;
-    db.remove<DbPlayer>(find.front().PlayerID);
-    db.remove_all<Inventory>(where(c(&Inventory::playerId) == characterID));
-    db.remove_all<Nano>(where(c(&Nano::playerId) == characterID));
+    const char* sql = R"(
+        SELECT Slot
+        FROM Players
+        WHERE AccountID = ? AND PlayerID = ?
+        LIMIT 1;
+        )";
+
+    sqlite3_stmt* stmt;
+
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, userID);
+    sqlite3_bind_int(stmt, 2, characterID);
+    if (sqlite3_step(stmt) != SQLITE_ROW) {
+        sqlite3_finalize(stmt);
+        return 0;
+    }
+    int slot = sqlite3_column_int(stmt, 0);
+
+    sql = R"(
+        DELETE FROM Players
+        WHERE AccountID = ? AND PlayerID = ?;
+        )";
+    sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+    sqlite3_bind_int(stmt, 1, userID);
+    sqlite3_bind_int(stmt, 2, characterID);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    if (rc != SQLITE_DONE)
+        return 0;
 
     return slot;
 }
 
-std::vector <Player> Database::getCharacters(int UserID) {
+void Database::getCharInfo(std::vector <sP_LS2CL_REP_CHAR_INFO>* result, int userID) {
     std::lock_guard<std::mutex> lock(dbCrit);
 
-    std::vector<DbPlayer>characters =
-        db.get_all<DbPlayer>(where
-        (c(&DbPlayer::AccountID) == UserID));
-    // parsing DbPlayer to Player
-    std::vector<Player> result = std::vector<Player>();
-    for (auto &character : characters) {
-        Player toadd = DbToPlayer(character);
-        result.push_back(
-            toadd
-        );
-    }
-    return result;
-}
+    const char* sql = R"(
+        SELECT
+            p.PlayerID, p.Slot, p.FirstName, p.LastName, p.Level, p.AppearanceFlag, p.TutorialFlag, p.PayZoneFlag,
+            p.XCoordinates, p.YCoordinates, p.ZCoordinates, p.NameCheck,
+            a.Body, a.EyeColor, a.FaceStyle, a.Gender, a.HairColor, a.HairStyle, a.Height, a.SkinColor
+        FROM Players as p
+        INNER JOIN Appearances as a ON p.PlayerID = a.PlayerID
+        WHERE p.AccountID = ?;
+        )";
+    sqlite3_stmt* stmt;
 
-std::vector <sP_LS2CL_REP_CHAR_INFO> Database::getCharInfo(int userID) {
-    std::lock_guard<std::mutex> lock(dbCrit);
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, userID);
 
-    std::vector<DbPlayer>characters =
-        db.get_all<DbPlayer>(where
-        (c(&DbPlayer::AccountID) == userID));
-
-    std::vector<sP_LS2CL_REP_CHAR_INFO> result = std::vector<sP_LS2CL_REP_CHAR_INFO>();
-    for (auto& character : characters) {
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
         sP_LS2CL_REP_CHAR_INFO toAdd = {};
-        toAdd.iX = character.x_coordinates;
-        toAdd.iY = character.y_coordinates;
-        toAdd.iZ = character.z_coordinates;
-        toAdd.iLevel = character.Level;
-        toAdd.iSlot =  character.slot;
-        toAdd.sPC_Style.iBody =      character.Body;
-        toAdd.sPC_Style.iClass =     character.Class;
-        toAdd.sPC_Style.iEyeColor =  character.EyeColor;
-        toAdd.sPC_Style.iFaceStyle = character.FaceStyle;
-        toAdd.sPC_Style.iGender =    character.Gender;
-        toAdd.sPC_Style.iHairColor = character.HairColor;
-        toAdd.sPC_Style.iHairStyle = character.HairStyle;
-        toAdd.sPC_Style.iHeight =    character.Height;
-        toAdd.sPC_Style.iNameCheck = character.NameCheck;
-        toAdd.sPC_Style.iPC_UID =    character.PlayerID;
-        toAdd.sPC_Style.iSkinColor = character.SkinColor;
-        U8toU16(character.FirstName, toAdd.sPC_Style.szFirstName, sizeof(toAdd.sPC_Style.szFirstName));
-        U8toU16(character.LastName,  toAdd.sPC_Style.szLastName,  sizeof(toAdd.sPC_Style.szLastName));
-        toAdd.sPC_Style2.iAppearanceFlag = character.AppearanceFlag;
-        toAdd.sPC_Style2.iPayzoneFlag =    character.PayZoneFlag;
-        toAdd.sPC_Style2.iTutorialFlag =   character.TutorialFlag;
+        toAdd.sPC_Style.iPC_UID = sqlite3_column_int(stmt, 0);
+        toAdd.iSlot = sqlite3_column_int(stmt, 1);
 
-        //get equipment
-        auto items = db.get_all<Inventory>(
-            where(c(&Inventory::playerId) == character.PlayerID && c(&Inventory::slot) < AEQUIP_COUNT));
+        // parsing const unsigned char* to char16_t
+        std::string placeHolder = std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
+        U8toU16(placeHolder, toAdd.sPC_Style.szFirstName, sizeof(toAdd.sPC_Style.szFirstName));
+        placeHolder = std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
+        U8toU16(placeHolder, toAdd.sPC_Style.szLastName, sizeof(toAdd.sPC_Style.szLastName));
 
-        for (auto& item : items) {
-            sItemBase addItem = {};
-            addItem.iID = item.id;
-            addItem.iType = item.Type;
-            addItem.iOpt = item.Opt;
-            addItem.iTimeLimit = item.TimeLimit;
-            toAdd.aEquip[item.slot] = addItem;
+        toAdd.iLevel = sqlite3_column_int(stmt, 4);
+        toAdd.sPC_Style2.iAppearanceFlag = sqlite3_column_int(stmt, 5);
+        toAdd.sPC_Style2.iTutorialFlag = sqlite3_column_int(stmt, 6);
+        toAdd.sPC_Style2.iPayzoneFlag = sqlite3_column_int(stmt, 7);
+        toAdd.iX = sqlite3_column_int(stmt, 8);
+        toAdd.iY = sqlite3_column_int(stmt, 9);
+        toAdd.iZ = sqlite3_column_int(stmt, 10);
+        toAdd.sPC_Style.iNameCheck = sqlite3_column_int(stmt, 11);
+        toAdd.sPC_Style.iBody = sqlite3_column_int(stmt, 12);
+        toAdd.sPC_Style.iEyeColor = sqlite3_column_int(stmt, 13);
+        toAdd.sPC_Style.iFaceStyle = sqlite3_column_int(stmt, 14);
+        toAdd.sPC_Style.iGender = sqlite3_column_int(stmt, 15);
+        toAdd.sPC_Style.iHairColor = sqlite3_column_int(stmt, 16);
+        toAdd.sPC_Style.iHairStyle = sqlite3_column_int(stmt, 17);
+        toAdd.sPC_Style.iHeight = sqlite3_column_int(stmt, 18);
+        toAdd.sPC_Style.iSkinColor = sqlite3_column_int(stmt, 19);
+
+        // request aEquip
+        const char* sql2 = R"(
+            SELECT Slot, Type, ID, Opt, TimeLimit
+            FROM Inventory
+            WHERE PlayerID = ? AND Slot < ?;
+            )";
+        sqlite3_stmt* stmt2;
+
+        sqlite3_prepare_v2(db, sql2, -1, &stmt2, NULL);
+        sqlite3_bind_int(stmt2, 1, toAdd.sPC_Style.iPC_UID);
+        sqlite3_bind_int(stmt2, 2, AEQUIP_COUNT);
+
+        while (sqlite3_step(stmt2) == SQLITE_ROW) {
+            sItemBase* item = &toAdd.aEquip[sqlite3_column_int(stmt2, 0)];
+            item->iType = sqlite3_column_int(stmt2, 1);
+            item->iID = sqlite3_column_int(stmt2, 2);
+            item->iOpt = sqlite3_column_int(stmt2, 3);
+            item->iTimeLimit = sqlite3_column_int(stmt2, 4);
         }
+        sqlite3_finalize(stmt2);
 
-        result.push_back(toAdd);
+        result->push_back(toAdd);
     }
-    return result;
+    sqlite3_finalize(stmt);
 }
 
-// XXX: This is never called?
+// NOTE: This is currently never called.
 void Database::evaluateCustomName(int characterID, CustomName decision) {
     std::lock_guard<std::mutex> lock(dbCrit);
 
-    DbPlayer player = getDbPlayerById(characterID);
-    player.NameCheck = (int)decision;
-    db.update(player);
+    const char* sql = R"(
+        UPDATE Players
+        SET NameCheck = ?
+        WHERE PlayerID = ?;
+        )";
+    sqlite3_stmt* stmt;
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, int(decision));
+    sqlite3_bind_int(stmt, 2, characterID);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+        std::cout << "[WARN] Database: Failed to update nameCheck" << std::endl;
+    sqlite3_finalize(stmt);
 }
 
-void Database::changeName(sP_CL2LS_REQ_CHANGE_CHAR_NAME* save) {
+bool Database::changeName(sP_CL2LS_REQ_CHANGE_CHAR_NAME* save, int accountId) {
     std::lock_guard<std::mutex> lock(dbCrit);
 
-    DbPlayer Player = getDbPlayerById(save->iPCUID);
-    Player.FirstName = U16toU8(save->szFirstName);
-    Player.LastName = U16toU8(save->szLastName);
-    if (settings::APPROVEALLNAMES || save->iFNCode)
-        Player.NameCheck = 1;
-    else
-        Player.NameCheck = 0;
-    db.update(Player);
+    const char* sql = R"(
+        UPDATE Players
+        SET
+            FirstName = ?,
+            LastName = ?,
+            NameCheck = ?
+        WHERE PlayerID = ? AND AccountID = ?;
+        )";
+    sqlite3_stmt* stmt;
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+
+    std::string firstName = U16toU8(save->szFirstName);
+    std::string lastName = U16toU8(save->szLastName);
+
+    sqlite3_bind_text(stmt, 1, firstName.c_str(), -1, NULL);
+    sqlite3_bind_text(stmt, 2, lastName.c_str(), -1, NULL);
+    // if FNCode isn't 0, it's a wheel name
+    int nameCheck = (settings::APPROVEALLNAMES || save->iFNCode) ? 1 : 0;
+    sqlite3_bind_int(stmt, 3, nameCheck);
+    sqlite3_bind_int(stmt, 4, save->iPCUID);
+    sqlite3_bind_int(stmt, 5, accountId);
+
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
 }
 
-Database::DbPlayer Database::playerToDb(Player *player) {
-    // TODO: move stuff that is never updated to separate table so it doesn't try to update it every time
-    DbPlayer result = {};
+void Database::getPlayer(Player* plr, int id) {
+    std::lock_guard<std::mutex> lock(dbCrit);
 
-    result.PlayerID = player->iID;
-    result.AccountID = player->accountId;
-    result.AppearanceFlag = player->PCStyle2.iAppearanceFlag;
-    result.Body = player->PCStyle.iBody;
-    result.Class = player->PCStyle.iClass;
-    result.EyeColor = player->PCStyle.iEyeColor;
-    result.FaceStyle = player->PCStyle.iFaceStyle;
-    result.FirstName = U16toU8( player->PCStyle.szFirstName);
-    result.FusionMatter = player->fusionmatter;
-    result.Gender = player->PCStyle.iGender;
-    result.HairColor = player->PCStyle.iHairColor;
-    result.HairStyle = player->PCStyle.iHairStyle;
-    result.Height = player->PCStyle.iHeight;
-    result.HP = player->HP;
-    result.AccountLevel = player->accountLevel;
-    result.LastName = U16toU8(player->PCStyle.szLastName);
-    result.Level = player->level;
-    result.NameCheck = player->PCStyle.iNameCheck;
-    result.PayZoneFlag = player->PCStyle2.iPayzoneFlag;
-    result.PlayerID = player->PCStyle.iPC_UID;
-    result.SkinColor = player->PCStyle.iSkinColor;
-    result.slot = player->slot;
-    result.Taros = player->money;
-    result.TutorialFlag = player->PCStyle2.iTutorialFlag;
-    if (player->instanceID == 0 && !player->onMonkey) { // only save coords if player isn't instanced
-        result.x_coordinates = player->x;
-        result.y_coordinates = player->y;
-        result.z_coordinates = player->z;
-        result.angle = player->angle;
-    } else {
-        result.x_coordinates = player->lastX;
-        result.y_coordinates = player->lastY;
-        result.z_coordinates = player->lastZ;
-        result.angle = player->lastAngle;
+    const char* sql = R"(
+        SELECT
+            p.AccountID, p.Slot, p.FirstName, p.LastName,
+            p.Level, p.Nano1, p.Nano2, p.Nano3,
+            p.AppearanceFlag, p.TutorialFlag, p.PayZoneFlag,
+            p.XCoordinates, p.YCoordinates, p.ZCoordinates, p.NameCheck,
+            p.Angle, p.HP, acc.AccountLevel, p.FusionMatter, p.Taros, p.Quests,
+            p.BatteryW, p.BatteryN, p.Mentor, p.WarpLocationFlag,
+            p.SkywayLocationFlag, p.CurrentMissionID, p.FirstUseFlag,
+            a.Body, a.EyeColor, a.FaceStyle, a.Gender, a.HairColor, a.HairStyle, a.Height, a.SkinColor
+        FROM Players as p
+        INNER JOIN Appearances as a ON p.PlayerID = a.PlayerID
+        INNER JOIN Accounts as acc ON p.AccountID = acc.AccountID
+        WHERE p.PlayerID = ?;
+        )";
+    sqlite3_stmt* stmt;
+
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, id);
+    if (sqlite3_step(stmt) != SQLITE_ROW) {
+        sqlite3_finalize(stmt);
+        std::cout << "[WARN] Database: Failed to load character [" << id << "]" << std::endl;
+        return;
     }
-    result.Nano1 = player->equippedNanos[0];
-    result.Nano2 = player->equippedNanos[1];
-    result.Nano3 = player->equippedNanos[2];
-    result.BatteryN = player->batteryN;
-    result.BatteryW = player->batteryW;
-    result.Mentor = player->mentor;
-    result.WarpLocationFlag = player->iWarpLocationFlag;
-    result.SkywayLocationFlag1 = player->aSkywayLocationFlag[0];
-    result.SkywayLocationFlag2 = player->aSkywayLocationFlag[1];
-    result.CurrentMissionID = player->CurrentMissionID;
 
-    // timestamp
-    result.LastLogin = getTimestamp();
-    result.Created = player->creationTime;
+    plr->iID = id;
+    plr->PCStyle.iPC_UID = id;
 
-    // save completed quests
-    result.QuestFlag = std::vector<char>((char*)player->aQuestFlag, (char*)player->aQuestFlag + 128);
+    plr->accountId = sqlite3_column_int(stmt, 0);
+    plr->slot = sqlite3_column_int(stmt, 1);
 
-    return result;
-}
+    // parsing const unsigned char* to char16_t
+    std::string placeHolder = std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
+    U8toU16(placeHolder, plr->PCStyle.szFirstName, sizeof(plr->PCStyle.szFirstName));
+    placeHolder = std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
+    U8toU16(placeHolder, plr->PCStyle.szLastName, sizeof(plr->PCStyle.szLastName));
 
-Player Database::DbToPlayer(DbPlayer player) {
-    Player result = {}; // fixes some weird memory errors, this zeros out the members (not the padding inbetween though)
+    plr->level = sqlite3_column_int(stmt, 4);
+    plr->equippedNanos[0] = sqlite3_column_int(stmt, 5);
+    plr->equippedNanos[1] = sqlite3_column_int(stmt, 6);
+    plr->equippedNanos[2] = sqlite3_column_int(stmt, 7);
 
-    result.iID = player.PlayerID;
-    result.accountId = player.AccountID;
-    result.creationTime = player.Created;
-    result.PCStyle2.iAppearanceFlag = player.AppearanceFlag;
-    result.PCStyle.iBody = player.Body;
-    result.PCStyle.iClass = player.Class;
-    result.PCStyle.iEyeColor = player.EyeColor;
-    result.PCStyle.iFaceStyle = player.FaceStyle;
-    U8toU16(player.FirstName, result.PCStyle.szFirstName, sizeof(result.PCStyle.szFirstName));
-    result.PCStyle.iGender = player.Gender;
-    result.PCStyle.iHairColor = player.HairColor;
-    result.PCStyle.iHairStyle = player.HairStyle;
-    result.PCStyle.iHeight = player.Height;
-    result.HP = player.HP;
-    result.accountLevel = player.AccountLevel;
-    U8toU16(player.LastName, result.PCStyle.szLastName, sizeof(result.PCStyle.szLastName));
-    result.level = player.Level;
-    result.PCStyle.iNameCheck = player.NameCheck;
-    result.PCStyle2.iPayzoneFlag = player.PayZoneFlag;
-    result.iID = player.PlayerID;
-    result.PCStyle.iPC_UID = player.PlayerID;
-    result.PCStyle.iSkinColor = player.SkinColor;
-    result.slot = player.slot;
-    result.PCStyle2.iTutorialFlag = player.TutorialFlag;
-    result.x = player.x_coordinates;
-    result.y = player.y_coordinates;
-    result.z = player.z_coordinates;
-    result.angle = player.angle;
-    result.money = player.Taros;
-    result.fusionmatter = player.FusionMatter;
-    result.batteryN = player.BatteryN;
-    result.batteryW = player.BatteryW;
-    result.mentor = player.Mentor;
-    result.CurrentMissionID = player.CurrentMissionID;
+    plr->PCStyle2.iAppearanceFlag = sqlite3_column_int(stmt, 8);
+    plr->PCStyle2.iTutorialFlag = sqlite3_column_int(stmt, 9);
+    plr->PCStyle2.iPayzoneFlag = sqlite3_column_int(stmt, 10);
 
-    result.equippedNanos[0] = player.Nano1;
-    result.equippedNanos[1] = player.Nano2;
-    result.equippedNanos[2] = player.Nano3;
+    plr->x = sqlite3_column_int(stmt, 11);
+    plr->y = sqlite3_column_int(stmt, 12);
+    plr->z = sqlite3_column_int(stmt, 13);
+    plr->PCStyle.iNameCheck = sqlite3_column_int(stmt, 14);
 
-    result.inCombat = false;
+    plr->angle = sqlite3_column_int(stmt, 15);
+    plr->HP = sqlite3_column_int(stmt, 16);
+    plr->accountLevel = sqlite3_column_int(stmt, 17);
+    plr->fusionmatter = sqlite3_column_int(stmt, 18);
+    plr->money = sqlite3_column_int(stmt, 19);
 
-    result.iWarpLocationFlag = player.WarpLocationFlag;
-    result.aSkywayLocationFlag[0] = player.SkywayLocationFlag1;
-    result.aSkywayLocationFlag[1] = player.SkywayLocationFlag2;
+    memcpy(plr->aQuestFlag, sqlite3_column_blob(stmt, 20), sizeof(plr->aQuestFlag));
 
-    Database::getInventory(&result);
-    Database::removeExpiredVehicles(&result);
-    Database::getNanos(&result);
-    Database::getQuests(&result);
-    Database::getBuddies(&result);
+    plr->batteryW = sqlite3_column_int(stmt, 21);
+    plr->batteryN = sqlite3_column_int(stmt, 22);
+    plr->mentor = sqlite3_column_int(stmt, 23);
+    plr->iWarpLocationFlag = sqlite3_column_int(stmt, 24);
 
-    // load completed quests
-    memcpy(&result.aQuestFlag, player.QuestFlag.data(), std::min(sizeof(result.aQuestFlag), player.QuestFlag.size()));
+    memcpy(plr->aSkywayLocationFlag, sqlite3_column_blob(stmt, 25), sizeof(plr->aSkywayLocationFlag));
 
-    return result;
-}
+    plr->CurrentMissionID = sqlite3_column_int(stmt, 26);
 
-Database::DbPlayer Database::getDbPlayerById(int id) {
-    auto player = db.get_all<DbPlayer>(where(c(&DbPlayer::PlayerID) == id));
-    if (player.size() < 1) {
-        // garbage collection
-        db.remove_all<Inventory>(where(c(&Inventory::playerId) == id));
-        db.remove_all<Nano>(where(c(&Nano::playerId) == id));
-        db.remove_all<DbQuest>(where(c(&DbQuest::PlayerId) == id));
-        db.remove_all<Buddyship>(where(c(&Buddyship::PlayerAId) == id || c(&Buddyship::PlayerBId) == id));
-        db.remove_all<EmailData>(where(c(&EmailData::PlayerId) == id));
-        db.remove_all<EmailItem>(where(c(&EmailItem::PlayerId) == id));
-        return DbPlayer{ -1 };
+    memcpy(plr->iFirstUseFlag, sqlite3_column_blob(stmt, 27), sizeof(plr->iFirstUseFlag));
+
+    plr->PCStyle.iBody = sqlite3_column_int(stmt, 28);
+    plr->PCStyle.iEyeColor = sqlite3_column_int(stmt, 29);
+    plr->PCStyle.iFaceStyle = sqlite3_column_int(stmt, 30);
+    plr->PCStyle.iGender = sqlite3_column_int(stmt, 31);
+    plr->PCStyle.iHairColor = sqlite3_column_int(stmt, 32);
+    plr->PCStyle.iHairStyle = sqlite3_column_int(stmt, 33);
+    plr->PCStyle.iHeight = sqlite3_column_int(stmt, 34);
+    plr->PCStyle.iSkinColor = sqlite3_column_int(stmt, 35);
+
+    // get inventory
+    sql = R"(
+        SELECT Slot, Type, ID, Opt, TimeLimit
+        FROM Inventory
+        WHERE PlayerID = ?;
+        )";
+
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+
+    sqlite3_bind_int(stmt, 1, id);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        int slot = sqlite3_column_int(stmt, 0);
+
+        // for extra safety
+        if (slot > AEQUIP_COUNT + AINVEN_COUNT + ABANK_COUNT) {
+            std::cout << "[WARN] Database: Invalid item slot in db?! " << std::endl;
+            continue;
+        }
+
+        sItemBase* item;
+        if (slot < AEQUIP_COUNT) {
+            // equipment
+            item = &plr->Equip[slot];
+        } else if (slot < (AEQUIP_COUNT + AINVEN_COUNT)) {
+            // inventory
+            item = &plr->Inven[slot - AEQUIP_COUNT];
+        } else {
+            // bank
+            item = &plr->Bank[slot - AEQUIP_COUNT - AINVEN_COUNT];
+        }
+
+        item->iType = sqlite3_column_int(stmt, 1);
+        item->iID = sqlite3_column_int(stmt, 2);
+        item->iOpt = sqlite3_column_int(stmt, 3);
+        item->iTimeLimit = sqlite3_column_int(stmt, 4);
     }
-    return player.front();
+
+    Database::removeExpiredVehicles(plr);
+
+    // get quest inventory
+    sql = R"(
+        SELECT Slot, ID, Opt
+        FROM QuestItems
+        WHERE PlayerID = ?;
+        )";
+
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+
+    sqlite3_bind_int(stmt, 1, id);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        int slot = sqlite3_column_int(stmt, 0);
+
+        sItemBase* item = &plr->QInven[slot];
+        item->iType = 8;
+        item->iID = sqlite3_column_int(stmt, 1);
+        item->iOpt = sqlite3_column_int(stmt, 2);
+    }
+
+
+    // get nanos
+    sql = R"(
+        SELECT ID, Skill, Stamina
+        FROM Nanos
+        WHERE PlayerID = ?;
+        )";
+
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, id);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        int id = sqlite3_column_int(stmt, 0);
+
+        // for extra safety
+        if (id > SIZEOF_NANO_BANK_SLOT)
+            continue;
+
+        sNano* nano = &plr->Nanos[id];
+        nano->iID = id;
+        nano->iSkillID = sqlite3_column_int(stmt, 1);
+        nano->iStamina = sqlite3_column_int(stmt, 2);
+    }
+
+    // get active quests
+    sql = R"(
+        SELECT
+            TaskID,
+            RemainingNPCCount1,
+            RemainingNPCCount2,
+            RemainingNPCCount3
+        FROM RunningQuests
+        WHERE PlayerID = ?;
+        )";
+
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, id);
+
+    int i = 0;
+    while (sqlite3_step(stmt) == SQLITE_ROW && i < ACTIVE_MISSION_COUNT) {
+        plr->tasks[i] = sqlite3_column_int(stmt, 0);
+        plr->RemainingNPCCount[i][0] = sqlite3_column_int(stmt, 1);
+        plr->RemainingNPCCount[i][1] = sqlite3_column_int(stmt, 2);
+        plr->RemainingNPCCount[i][2] = sqlite3_column_int(stmt, 3);
+        i++;
+    }
+
+    // get buddies
+    sql = R"(
+        SELECT PlayerAID, PlayerBID
+        FROM Buddyships
+        WHERE PlayerAID = ? OR PlayerBID = ?;
+        )";
+
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, id);
+    sqlite3_bind_int(stmt, 2, id);
+
+    i = 0;
+    while (sqlite3_step(stmt) == SQLITE_ROW && i < 50) {
+        int PlayerAId = sqlite3_column_int(stmt, 0);
+        int PlayerBId = sqlite3_column_int(stmt, 1);
+
+        plr->buddyIDs[i] = id == PlayerAId ? PlayerBId : PlayerAId;
+        plr->isBuddyBlocked[i] = false;
+        i++;
+    }
+
+    // get blocked players
+    sql = R"(
+        SELECT BlockedPlayerID FROM Blocks
+        WHERE PlayerID = ?;
+        )";
+
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, id);
+
+    // i retains its value from after the loop over Buddyships
+    while (sqlite3_step(stmt) == SQLITE_ROW && i < 50) {
+        plr->buddyIDs[i] = sqlite3_column_int(stmt, 0);
+        plr->isBuddyBlocked[i] = true;
+        i++;
+    }
+
+    sqlite3_finalize(stmt);
 }
-
-Player Database::getPlayer(int id) {
-    return DbToPlayer(
-        getDbPlayerById(id)
-    );
-}
-
-#pragma endregion LoginServer
-
-#pragma region ShardServer
 
 void Database::updatePlayer(Player *player) {
     std::lock_guard<std::mutex> lock(dbCrit);
 
-    DbPlayer toUpdate = playerToDb(player);
-    db.update(toUpdate);
-    updateInventory(player);
-    updateNanos(player);
-    updateQuests(player);
-    //updateBuddies(player); we add/remove buddies explicitly now
-}
+    sqlite3_exec(db, "BEGIN TRANSACTION;", NULL, NULL, NULL);
 
-void Database::updateInventory(Player *player){
-    // start transaction
-    db.begin_transaction();
-    // remove all
-    db.remove_all<Inventory>(
-        where(c(&Inventory::playerId) == player->iID)
-        );
-    // insert equip
+    const char* sql = R"(
+        UPDATE Players
+        SET
+            Level = ? , Nano1 = ?, Nano2 = ?, Nano3 = ?,
+            XCoordinates = ?, YCoordinates = ?, ZCoordinates = ?,
+            Angle = ?, HP = ?, FusionMatter = ?, Taros = ?, Quests = ?,
+            BatteryW = ?, BatteryN = ?, WarplocationFlag = ?,
+            SkywayLocationFlag = ?, CurrentMissionID = ?,
+            PayZoneFlag = ?, FirstUseFlag = ?, Mentor = ?
+        WHERE PlayerID = ?;
+        )";
+    sqlite3_stmt* stmt;
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, player->level);
+    sqlite3_bind_int(stmt, 2, player->equippedNanos[0]);
+    sqlite3_bind_int(stmt, 3, player->equippedNanos[1]);
+    sqlite3_bind_int(stmt, 4, player->equippedNanos[2]);
+
+    if (player->instanceID == 0 && !player->onMonkey) {
+        sqlite3_bind_int(stmt, 5, player->x);
+        sqlite3_bind_int(stmt, 6, player->y);
+        sqlite3_bind_int(stmt, 7, player->z);
+        sqlite3_bind_int(stmt, 8, player->angle);
+    }
+    else {
+        sqlite3_bind_int(stmt, 5, player->lastX);
+        sqlite3_bind_int(stmt, 6, player->lastY);
+        sqlite3_bind_int(stmt, 7, player->lastZ);
+        sqlite3_bind_int(stmt, 8, player->lastAngle);
+    }
+
+    sqlite3_bind_int(stmt, 9, player->HP);
+    sqlite3_bind_int(stmt, 10, player->fusionmatter);
+    sqlite3_bind_int(stmt, 11, player->money);
+    sqlite3_bind_blob(stmt, 12, player->aQuestFlag, sizeof(player->aQuestFlag), NULL);
+    sqlite3_bind_int(stmt, 13, player->batteryW);
+    sqlite3_bind_int(stmt, 14, player->batteryN);
+    sqlite3_bind_int(stmt, 15, player->iWarpLocationFlag);
+    sqlite3_bind_blob(stmt, 16, player->aSkywayLocationFlag, sizeof(player->aSkywayLocationFlag), NULL);
+    sqlite3_bind_int(stmt, 17, player->CurrentMissionID);
+    sqlite3_bind_int(stmt, 18, player->PCStyle2.iPayzoneFlag);
+    sqlite3_bind_blob(stmt, 19, player->iFirstUseFlag, sizeof(player->iFirstUseFlag), NULL);
+    sqlite3_bind_int(stmt, 20, player->mentor);
+    sqlite3_bind_int(stmt, 21, player->iID);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        sqlite3_exec(db, "ROLLBACK TRANSACTION;", NULL, NULL, NULL);
+        std::cout << "[WARN] Database: Failed to save player to database" << std::endl;
+        return;
+    }
+
+    // update inventory
+    sql = R"(
+        DELETE FROM Inventory WHERE PlayerID = ?;
+        )";
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, player->iID);
+    int rc = sqlite3_step(stmt);
+
+    sql = R"(
+        INSERT INTO Inventory
+            (PlayerID, Slot, Type, Opt, ID, Timelimit)
+        VALUES (?, ?, ?, ?, ?, ?);
+        )";
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+
     for (int i = 0; i < AEQUIP_COUNT; i++) {
-        if (player->Equip[i].iID != 0) {
-            sItemBase* next = &player->Equip[i];
-            Inventory toAdd = {};
-            toAdd.playerId = player->iID;
-            toAdd.slot = i;
-            toAdd.id = next->iID;
-            toAdd.Opt = next->iOpt;
-            toAdd.Type = next->iType;
-            toAdd.TimeLimit = next->iTimeLimit;
-            db.insert(toAdd);
-        }
-    }
-    // insert inventory
-    for (int i = 0; i < AINVEN_COUNT; i++) {
-        if (player->Inven[i].iID != 0) {
-            sItemBase* next = &player->Inven[i];
-            Inventory toAdd = {};
-            toAdd.playerId = player->iID;
-            toAdd.slot = i + AEQUIP_COUNT;
-            toAdd.id = next->iID;
-            toAdd.Opt = next->iOpt;
-            toAdd.Type = next->iType;
-            toAdd.TimeLimit = next->iTimeLimit;
-            db.insert(toAdd);
-        }
-    }
-    // insert bank
-    for (int i = 0; i < ABANK_COUNT; i++) {
-        if (player->Bank[i].iID != 0) {
-            sItemBase* next = &player->Bank[i];
-            Inventory toAdd = {};
-            toAdd.playerId = player->iID;
-            toAdd.slot = i + AEQUIP_COUNT + AINVEN_COUNT;
-            toAdd.id = next->iID;
-            toAdd.Opt = next->iOpt;
-            toAdd.Type = next->iType;
-            toAdd.TimeLimit = next->iTimeLimit;
-            db.insert(toAdd);
-        }
-    }
-    // insert quest items
-    for (int i = 0; i < AQINVEN_COUNT; i++) {
-        if (player->QInven[i].iID != 0) {
-            sItemBase* next = &player->QInven[i];
-            Inventory toAdd = {};
-            toAdd.playerId = player->iID;
-            toAdd.slot = i + AEQUIP_COUNT + AINVEN_COUNT + ABANK_COUNT;
-            toAdd.id = next->iID;
-            toAdd.Opt = next->iOpt;
-            toAdd.Type = next->iType;
-            toAdd.TimeLimit = next->iTimeLimit;
-            db.insert(toAdd);
-        }
-    }
-    db.commit();
-}
-
-void Database::updateNanos(Player *player) {
-    // start transaction
-    db.begin_transaction();
-    // remove all
-    db.remove_all<Nano>(
-        where(c(&Nano::playerId) == player->iID)
-        );
-    // insert
-    for (int i=1; i < SIZEOF_NANO_BANK_SLOT; i++) {
-        if ((player->Nanos[i]).iID == 0)
+        if (player->Equip[i].iID == 0)
             continue;
-        Nano toAdd = {};
-        sNano* next = &player->Nanos[i];
-        toAdd.playerId = player->iID;
-        toAdd.iID = next->iID;
-        toAdd.iSkillID = next->iSkillID;
-        toAdd.iStamina = next->iStamina;
-        db.insert(toAdd);
-    }
-    db.commit();
-}
 
-void Database::updateQuests(Player* player) {
-    // start transaction
-    db.begin_transaction();
-    // remove all
-    db.remove_all<DbQuest>(
-        where(c(&DbQuest::PlayerId) == player->iID)
-        );
-    // insert
+        sqlite3_bind_int(stmt, 1, player->iID);
+        sqlite3_bind_int(stmt, 2, i);
+        sqlite3_bind_int(stmt, 3, player->Equip[i].iType);
+        sqlite3_bind_int(stmt, 4, player->Equip[i].iOpt);
+        sqlite3_bind_int(stmt, 5, player->Equip[i].iID);
+        sqlite3_bind_int(stmt, 6, player->Equip[i].iTimeLimit);
+
+        rc = sqlite3_step(stmt);
+
+        if (rc != SQLITE_DONE) {
+            sqlite3_exec(db, "ROLLBACK TRANSACTION;", NULL, NULL, NULL);
+            sqlite3_finalize(stmt);
+            std::cout << "[WARN] Database: Failed to save player to database" << std::endl;
+            return;
+        }
+        sqlite3_reset(stmt);
+    }
+
+    for (int i = 0; i < AINVEN_COUNT; i++) {
+        if (player->Inven[i].iID == 0)
+            continue;
+
+        sqlite3_bind_int(stmt, 1, player->iID);
+        sqlite3_bind_int(stmt, 2, i + AEQUIP_COUNT);
+        sqlite3_bind_int(stmt, 3, player->Inven[i].iType);
+        sqlite3_bind_int(stmt, 4, player->Inven[i].iOpt);
+        sqlite3_bind_int(stmt, 5, player->Inven[i].iID);
+        sqlite3_bind_int(stmt, 6, player->Inven[i].iTimeLimit);
+
+        if (sqlite3_step(stmt) != SQLITE_DONE) {
+            sqlite3_exec(db, "ROLLBACK TRANSACTION;", NULL, NULL, NULL);
+            sqlite3_finalize(stmt);
+            std::cout << "[WARN] Database: Failed to save player to database" << std::endl;
+            return;
+        }
+        sqlite3_reset(stmt);
+    }
+
+    for (int i = 0; i < ABANK_COUNT; i++) {
+        if (player->Bank[i].iID == 0)
+            continue;
+
+        sqlite3_bind_int(stmt, 1, player->iID);
+        sqlite3_bind_int(stmt, 2, i + AEQUIP_COUNT + AINVEN_COUNT);
+        sqlite3_bind_int(stmt, 3, player->Bank[i].iType);
+        sqlite3_bind_int(stmt, 4, player->Bank[i].iOpt);
+        sqlite3_bind_int(stmt, 5, player->Bank[i].iID);
+        sqlite3_bind_int(stmt, 6, player->Bank[i].iTimeLimit);
+
+        if (sqlite3_step(stmt) != SQLITE_DONE) {
+            sqlite3_exec(db, "ROLLBACK TRANSACTION;", NULL, NULL, NULL);
+            sqlite3_finalize(stmt);
+            std::cout << "[WARN] Database: Failed to save player to database" << std::endl;
+            return;
+        }
+        sqlite3_reset(stmt);
+    }
+
+
+    // Update Quest Inventory
+    sql = R"(
+        DELETE FROM QuestItems WHERE PlayerID = ?;
+        )";
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, player->iID);
+    sqlite3_step(stmt);
+
+    sql = R"(
+        INSERT INTO QuestItems (PlayerID, Slot, Opt, ID)
+        VALUES (?, ?, ?, ?);
+        )";
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+
+    for (int i = 0; i < AQINVEN_COUNT; i++) {
+        if (player->QInven[i].iID == 0)
+            continue;
+
+        sqlite3_bind_int(stmt, 1, player->iID);
+        sqlite3_bind_int(stmt, 2, i);
+        sqlite3_bind_int(stmt, 3, player->QInven[i].iOpt);
+        sqlite3_bind_int(stmt, 4, player->QInven[i].iID);
+
+        if (sqlite3_step(stmt) != SQLITE_DONE) {
+            sqlite3_exec(db, "ROLLBACK TRANSACTION;", NULL, NULL, NULL);
+            sqlite3_finalize(stmt);
+            std::cout << "[WARN] Database: Failed to save player to database" << std::endl;
+            return;
+        }
+        sqlite3_reset(stmt);
+    }
+
+    // Update Nanos
+    sql = R"(
+        DELETE FROM Nanos WHERE PlayerID = ?;
+        )";
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, player->iID);
+    sqlite3_step(stmt);
+
+    sql = R"(
+        INSERT INTO Nanos (PlayerID, ID, SKill, Stamina)
+        VALUES (?, ?, ?, ?);
+        )";
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+
+    for (int i = 0; i < SIZEOF_NANO_BANK_SLOT; i++) {
+        if (player->Nanos[i].iID == 0)
+            continue;
+
+        sqlite3_bind_int(stmt, 1, player->iID);
+        sqlite3_bind_int(stmt, 2, player->Nanos[i].iID);
+        sqlite3_bind_int(stmt, 3, player->Nanos[i].iSkillID);
+        sqlite3_bind_int(stmt, 4, player->Nanos[i].iStamina);
+
+        if (sqlite3_step(stmt) != SQLITE_DONE) {
+            sqlite3_exec(db, "ROLLBACK TRANSACTION;", NULL, NULL, NULL);
+            sqlite3_finalize(stmt);
+            std::cout << "[WARN] Database: Failed to save player to database" << std::endl;
+            return;
+        }
+        sqlite3_reset(stmt);
+    }
+
+    // Update Running Quests
+    sql = R"(
+        DELETE FROM RunningQuests WHERE PlayerID = ?;
+        )";
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, player->iID);
+    sqlite3_step(stmt);
+
+    sql = R"(
+        INSERT INTO RunningQuests
+            (PlayerID, TaskID, RemainingNPCCount1, RemainingNPCCount2, RemainingNPCCount3)
+        VALUES (?, ?, ?, ?, ?);
+        )";
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+
     for (int i = 0; i < ACTIVE_MISSION_COUNT; i++) {
         if (player->tasks[i] == 0)
             continue;
-        DbQuest toAdd = {};
-        toAdd.PlayerId = player->iID;
-        toAdd.TaskId = player->tasks[i];
-        toAdd.RemainingNPCCount1 = player->RemainingNPCCount[i][0];
-        toAdd.RemainingNPCCount2 = player->RemainingNPCCount[i][1];
-        toAdd.RemainingNPCCount3 = player->RemainingNPCCount[i][2];
-        db.insert(toAdd);
-    }
-    db.commit();
-}
+        sqlite3_bind_int(stmt, 1, player->iID);
+        sqlite3_bind_int(stmt, 2, player->tasks[i]);
+        sqlite3_bind_int(stmt, 3, player->RemainingNPCCount[i][0]);
+        sqlite3_bind_int(stmt, 4, player->RemainingNPCCount[i][1]);
+        sqlite3_bind_int(stmt, 5, player->RemainingNPCCount[i][2]);
 
-// note: do not use. explicitly add/remove records instead.
-void Database::updateBuddies(Player* player) {
-    db.begin_transaction();
-
-    db.remove_all<Buddyship>( // remove all buddyships with this player involved
-        where(c(&Buddyship::PlayerAId) == player->iID || c(&Buddyship::PlayerBId) == player->iID)
-        );
-
-    // iterate through player's buddies and add records for each non-zero entry
-    for (int i = 0; i < 50; i++) {
-        if (player->buddyIDs[i] != 0) {
-            Buddyship record;
-            record.PlayerAId = player->iID;
-            record.PlayerBId = player->buddyIDs[i];
-            record.Status = 0; // still not sure how we'll handle blocking
-            db.insert(record);
+        if (sqlite3_step(stmt) != SQLITE_DONE) {
+            sqlite3_exec(db, "ROLLBACK TRANSACTION;", NULL, NULL, NULL);
+            sqlite3_finalize(stmt);
+            std::cout << "[WARN] Database: Failed to save player to database" << std::endl;
+            return;
         }
+        sqlite3_reset(stmt);
     }
 
-    db.commit();
-}
-
-void Database::getInventory(Player* player) {
-    // get items from DB
-    auto items = db.get_all<Inventory>(
-        where(c(&Inventory::playerId) == player->iID)
-        );
-    // set items
-    for (const Inventory &current : items) {
-        sItemBase toSet = {};
-        toSet.iID = current.id;
-        toSet.iType = current.Type;
-        toSet.iOpt = current.Opt;
-        toSet.iTimeLimit = current.TimeLimit;
-        // assign to proper arrays
-        if (current.slot < AEQUIP_COUNT)
-            player->Equip[current.slot] = toSet;
-        else if (current.slot < (AEQUIP_COUNT + AINVEN_COUNT))
-            player->Inven[current.slot - AEQUIP_COUNT] = toSet;
-        else if (current.slot < (AEQUIP_COUNT + AINVEN_COUNT + ABANK_COUNT))
-            player->Bank[current.slot - AEQUIP_COUNT - AINVEN_COUNT] = toSet;
-        else
-            player->QInven[current.slot - AEQUIP_COUNT - AINVEN_COUNT - ABANK_COUNT] = toSet;
-    }
-
-
+    sqlite3_exec(db, "COMMIT;", NULL, NULL, NULL);
+    sqlite3_finalize(stmt);
 }
 
 void Database::removeExpiredVehicles(Player* player) {
     int32_t currentTime = getTimestamp();
-    // remove from bank immediately
+
+    // if there are expired vehicles in bank just remove them silently
     for (int i = 0; i < ABANK_COUNT; i++) {
-        if (player->Bank[i].iType == 10 && player->Bank[i].iTimeLimit < currentTime)
-            player->Bank[i] = {};
+        if (player->Bank[i].iType == 10 && player->Bank[i].iTimeLimit < currentTime) {
+            memset(&player->Bank[i], 0, sizeof(sItemBase));
+        }
     }
-    // for the rest, we want to leave only 1 expired vehicle on player to delete it with the client packet
+
+    // we want to leave only 1 expired vehicle on player to delete it with the client packet
     std::vector<sItemBase*> toRemove;
 
-    // equiped vehicle
+    // equipped vehicle
     if (player->Equip[8].iOpt > 0 && player->Equip[8].iTimeLimit < currentTime) {
         toRemove.push_back(&player->Equip[8]);
         player->toRemoveVehicle.eIL = 0;
@@ -789,118 +1384,160 @@ void Database::removeExpiredVehicles(Player* player) {
     }
 }
 
-void Database::getNanos(Player* player) {
-    // get from DB
-    auto nanos = db.get_all<Nano>(
-        where(c(&Nano::playerId) == player->iID)
-        );
-    // set
-    for (const Nano& current : nanos) {
-        sNano *toSet = &player->Nanos[current.iID];
-        toSet->iID = current.iID;
-        toSet->iSkillID = current.iSkillID;
-        toSet->iStamina = current.iStamina;
-    }
-}
-
-void Database::getQuests(Player* player) {
-    // get from DB
-    auto quests = db.get_all<DbQuest>(
-        where(c(&DbQuest::PlayerId) == player->iID)
-        );
-    // set
-    int i = 0;
-    for (const DbQuest& current : quests) {
-        player->tasks[i] = current.TaskId;
-        player->RemainingNPCCount[i][0] = current.RemainingNPCCount1;
-        player->RemainingNPCCount[i][1] = current.RemainingNPCCount2;
-        player->RemainingNPCCount[i][2] = current.RemainingNPCCount3;
-        i++;
-    }
-}
-
-void Database::getBuddies(Player* player) {
-    auto buddies = db.get_all<Buddyship>( // player can be on either side
-        where(c(&Buddyship::PlayerAId) == player->iID || c(&Buddyship::PlayerBId) == player->iID)
-        );
-
-    // there should never be more than 50 buddyships per player, but just in case
-    for (int i = 0; i < 50 && i < buddies.size(); i++) {
-        // if the player is player A, then the buddy is player B, and vice versa
-        player->buddyIDs[i] = player->iID == buddies.at(i).PlayerAId
-            ? buddies.at(i).PlayerBId : buddies.at(i).PlayerAId;
-    }
-}
-
+// buddies
+// returns num of buddies + blocked players
 int Database::getNumBuddies(Player* player) {
     std::lock_guard<std::mutex> lock(dbCrit);
 
-    auto buddies = db.get_all<Buddyship>( // player can be on either side
-        where(c(&Buddyship::PlayerAId) == player->iID || c(&Buddyship::PlayerBId) == player->iID)
-        );
+    const char* sql = R"(
+        SELECT COUNT(*)
+        FROM Buddyships
+        WHERE PlayerAID = ? OR PlayerBID = ?;
+        )";
+    sqlite3_stmt* stmt;
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, player->iID);
+    sqlite3_bind_int(stmt, 2, player->iID);
+    sqlite3_step(stmt);
+    int result = sqlite3_column_int(stmt, 0);
+
+    sql = R"(
+        SELECT COUNT(*)
+        FROM Blocks
+        WHERE PlayerID = ?;
+        )";
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, player->iID);
+    sqlite3_step(stmt);
+    result += sqlite3_column_int(stmt, 0);
+
+    sqlite3_finalize(stmt);
 
     // again, for peace of mind
-    return buddies.size() > 50 ? 50 : buddies.size();
+    return result > 50 ? 50 : result;
 }
 
-// buddies
 void Database::addBuddyship(int playerA, int playerB) {
     std::lock_guard<std::mutex> lock(dbCrit);
 
-    db.begin_transaction();
+    const char* sql = R"(
+        INSERT INTO Buddyships (PlayerAID, PlayerBID)
+        VALUES (?, ?);
+        )";
+    sqlite3_stmt* stmt;
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, playerA);
+    sqlite3_bind_int(stmt, 2, playerB);
 
-    Buddyship record;
-    record.PlayerAId = playerA;
-    record.PlayerBId = playerB;
-    record.Status = 0; // blocking ???
-    db.insert(record);
-
-    db.commit();
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+        std::cout << "[WARN] Database: failed to add buddyship" << std::endl;
+    sqlite3_finalize(stmt);
 }
 
 void Database::removeBuddyship(int playerA, int playerB) {
     std::lock_guard<std::mutex> lock(dbCrit);
 
-    db.begin_transaction();
+    const char* sql = R"(
+        DELETE FROM Buddyships
+        WHERE (PlayerAID = ? AND PlayerBID = ?) OR (PlayerAID = ? AND PlayerBID = ?);
+        )";
+    sqlite3_stmt* stmt;
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, playerA);
+    sqlite3_bind_int(stmt, 2, playerB);
+    sqlite3_bind_int(stmt, 3, playerB);
+    sqlite3_bind_int(stmt, 4, playerA);
 
-    db.remove_all<Buddyship>(
-        where(c(&Buddyship::PlayerAId) == playerA && c(&Buddyship::PlayerBId) == playerB)
-        );
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+}
 
-    db.remove_all<Buddyship>( // the pair could be in either position
-        where(c(&Buddyship::PlayerAId) == playerB && c(&Buddyship::PlayerBId) == playerA)
-        );
+// blocking
+void Database::addBlock(int playerId, int blockedPlayerId) {
+    std::lock_guard<std::mutex> lock(dbCrit);
 
-    db.commit();
+    const char* sql = R"(
+        INSERT INTO Blocks (PlayerID, BlockedPlayerID)
+        VALUES (?, ?);
+        )";
+    sqlite3_stmt* stmt;
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, playerId);
+    sqlite3_bind_int(stmt, 2, blockedPlayerId);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+        std::cout << "[WARN] Database: failed to block player" << std::endl;
+    sqlite3_finalize(stmt);
+}
+
+void Database::removeBlock(int playerId, int blockedPlayerId) {
+    const char* sql = R"(
+        DELETE FROM Blocks
+        WHERE PlayerID = ? AND BlockedPlayerID = ?;
+        )";
+    sqlite3_stmt* stmt;
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, playerId);
+    sqlite3_bind_int(stmt, 2, blockedPlayerId);
+
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
 }
 
 // email
 int Database::getUnreadEmailCount(int playerID) {
     std::lock_guard<std::mutex> lock(dbCrit);
 
-    auto emailData = db.get_all<Database::EmailData>(
-        where(c(&Database::EmailData::PlayerId) == playerID && c(&Database::EmailData::ReadFlag) == 0)
-        );
-
-    return emailData.size();
+    const char* sql = R"(
+        SELECT COUNT(*) FROM EmailData
+        WHERE PlayerID = ? AND ReadFlag = 0;
+        )";
+    sqlite3_stmt* stmt;
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, playerID);
+    sqlite3_step(stmt);
+    return sqlite3_column_int(stmt, 0);
 }
 
 std::vector<Database::EmailData> Database::getEmails(int playerID, int page) {
     std::lock_guard<std::mutex> lock(dbCrit);
-    
+
     std::vector<Database::EmailData> emails;
 
-    auto emailData = db.get_all<Database::EmailData>(
-        where(c(&Database::EmailData::PlayerId) == playerID),
-        order_by(&Database::EmailData::MsgIndex).desc(),
-        limit(5 * (page - 1), 5)
-        );
+    const char* sql = R"(
+        SELECT
+            MsgIndex, ItemFlag, ReadFlag, SenderID,
+            SenderFirstName, SenderLastName, SubjectLine,
+            MsgBody, Taros, SendTime, DeleteTime
+        FROM EmailData
+        WHERE PlayerID = ?
+        ORDER BY MsgIndex DESC
+        LIMIT 5
+        OFFSET ?;
+        )";
+    sqlite3_stmt* stmt;
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, playerID);
+    int offset = 5 * page - 5;
+    sqlite3_bind_int(stmt, 2, offset);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        Database::EmailData toAdd;
+        toAdd.PlayerId = playerID;
+        toAdd.MsgIndex = sqlite3_column_int(stmt, 0);
+        toAdd.ItemFlag = sqlite3_column_int(stmt, 1);
+        toAdd.ReadFlag = sqlite3_column_int(stmt, 2);
+        toAdd.SenderId = sqlite3_column_int(stmt, 3);
+        toAdd.SenderFirstName = std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
+        toAdd.SenderLastName = std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5)));
+        toAdd.SubjectLine = std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6)));
+        toAdd.MsgBody = std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7)));
+        toAdd.Taros = sqlite3_column_int(stmt, 8);
+        toAdd.SendTime = sqlite3_column_int64(stmt, 9);
+        toAdd.DeleteTime = sqlite3_column_int64(stmt, 10);
 
-    int i = 0;
-    for (Database::EmailData email : emailData) {
-        emails.push_back(email);
-        i++;
+        emails.push_back(toAdd);
     }
+    sqlite3_finalize(stmt);
 
     return emails;
 }
@@ -908,14 +1545,41 @@ std::vector<Database::EmailData> Database::getEmails(int playerID, int page) {
 Database::EmailData Database::getEmail(int playerID, int index) {
     std::lock_guard<std::mutex> lock(dbCrit);
 
-    auto emailData = db.get_all<Database::EmailData>(
-        where(c(&Database::EmailData::PlayerId) == playerID && c(&Database::EmailData::MsgIndex) == index)
-        );
+    const char* sql = R"(
+        SELECT
+            ItemFlag, ReadFlag, SenderID, SenderFirstName,
+            SenderLastName, SubjectLine, MsgBody,
+            Taros, SendTime, DeleteTime
+        FROM EmailData
+        WHERE PlayerID = ? AND MsgIndex = ?;
+        )";
+    sqlite3_stmt* stmt;
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, playerID);
+    sqlite3_bind_int(stmt, 2, index);
 
-    if (emailData.size() > 1)
-        std::cout << "[WARN] Duplicate emails detected (player " << playerID << ", index " << index << ")" << std::endl;
+    Database::EmailData result;
+    if (sqlite3_step(stmt) != SQLITE_ROW) {
+        std::cout << "[WARN] Database: Email not found!" << std::endl;
+        sqlite3_finalize(stmt);
+        return result;
+    }
 
-    return emailData.at(0);
+    result.PlayerId = playerID;
+    result.MsgIndex = index;
+    result.ItemFlag = sqlite3_column_int(stmt, 0);
+    result.ReadFlag = sqlite3_column_int(stmt, 1);
+    result.SenderId = sqlite3_column_int(stmt, 2);
+    result.SenderFirstName = std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)));
+    result.SenderLastName = std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)));
+    result.SubjectLine = std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5)));
+    result.MsgBody = std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6)));
+    result.Taros = sqlite3_column_int(stmt, 7);
+    result.SendTime = sqlite3_column_int64(stmt, 8);
+    result.DeleteTime = sqlite3_column_int64(stmt, 9);
+
+    sqlite3_finalize(stmt);
+    return result;
 }
 
 sItemBase* Database::getEmailAttachments(int playerID, int index) {
@@ -923,17 +1587,29 @@ sItemBase* Database::getEmailAttachments(int playerID, int index) {
 
     sItemBase* items = new sItemBase[4];
     for (int i = 0; i < 4; i++)
-        items[i] = { 0, 0, 0, 0 }; // zero out items
+        items[i] = { 0, 0, 0, 0 };
 
-    auto attachments = db.get_all<Database::EmailItem>(
-        where(c(&Database::EmailItem::PlayerId) == playerID && c(&Database::EmailItem::MsgIndex) == index)
-        );
+    const char* sql = R"(
+        SELECT Slot, ID, Type, Opt, TimeLimit
+        FROM EmailItems
+        WHERE PlayerID = ? AND MsgIndex = ?;
+        )";
+    sqlite3_stmt* stmt;
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, playerID);
+    sqlite3_bind_int(stmt, 2, index);
 
-    if (attachments.size() > 4)
-        std::cout << "[WARN] Email has too many attachments (player " << playerID << ", index " << index << ")" << std::endl;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        int slot = sqlite3_column_int(stmt, 0) - 1;
+        if (slot < 0 || slot > 3) {
+            std::cout << "[WARN] Email item has invalid slot number ?!" << std::endl;
+            continue;
+        }
 
-    for (Database::EmailItem& item : attachments) {
-        items[item.Slot - 1] = { item.Type, item.Id, item.Opt, item.TimeLimit };
+        items[slot].iID = sqlite3_column_int(stmt, 1);
+        items[slot].iType = sqlite3_column_int(stmt, 2);
+        items[slot].iOpt = sqlite3_column_int(stmt, 3);
+        items[slot].iTimeLimit = sqlite3_column_int(stmt, 4);
     }
 
     return items;
@@ -942,88 +1618,192 @@ sItemBase* Database::getEmailAttachments(int playerID, int index) {
 void Database::updateEmailContent(EmailData* data) {
     std::lock_guard<std::mutex> lock(dbCrit);
 
-    db.begin_transaction();
+    const char* sql = R"(
+        SELECT COUNT(*)
+        FROM EmailItems
+        WHERE PlayerID = ? AND MsgIndex = ?;
+        )";
+    sqlite3_stmt* stmt;
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, data->PlayerId);
+    sqlite3_bind_int(stmt, 2, data->MsgIndex);
+    sqlite3_step(stmt);
+    int attachmentsCount = sqlite3_column_int(stmt, 0);
 
-    auto attachments = db.get_all<Database::EmailItem>(
-        where(c(&Database::EmailItem::PlayerId) == data->PlayerId && c(&Database::EmailItem::MsgIndex) == data->MsgIndex)
-        );
-    data->ItemFlag = (data->Taros > 0 || attachments.size() > 0) ? 1 : 0; // set attachment flag dynamically
+    data->ItemFlag = (data->Taros > 0 || attachmentsCount > 0) ? 1 : 0; // set attachment flag dynamically
 
-    db.remove_all<Database::EmailData>(
-        where(c(&Database::EmailData::PlayerId) == data->PlayerId && c(&Database::EmailData::MsgIndex) == data->MsgIndex)
-        );
-    db.insert(*data);
+    sql = R"(
+        UPDATE EmailData
+        SET
+            PlayerID = ?,
+            MsgIndex = ?,
+            ReadFlag = ?,
+            ItemFlag = ?,
+            SenderID = ?,
+            SenderFirstName = ?,
+            SenderLastName = ?,
+            SubjectLine = ?,
+            MsgBody = ?,
+            Taros = ?,
+            SendTime = ?,
+            DeleteTime = ?
+        WHERE PlayerID = ? AND MsgIndex = ?;
+        )";
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, data->PlayerId);
+    sqlite3_bind_int(stmt, 2, data->MsgIndex);
+    sqlite3_bind_int(stmt, 3, data->ReadFlag);
+    sqlite3_bind_int(stmt, 4, data->ItemFlag);
+    sqlite3_bind_int(stmt, 5, data->SenderId);
+    sqlite3_bind_text(stmt, 6, data->SenderFirstName.c_str(), -1, NULL);
+    sqlite3_bind_text(stmt, 7, data->SenderLastName.c_str(), -1, NULL);
+    sqlite3_bind_text(stmt, 8, data->SubjectLine.c_str(), -1, NULL);
+    sqlite3_bind_text(stmt, 9, data->MsgBody.c_str(), -1, NULL);
+    sqlite3_bind_int(stmt, 10, data->Taros);
+    sqlite3_bind_int64(stmt, 11, data->SendTime);
+    sqlite3_bind_int64(stmt, 12, data->DeleteTime);
+    sqlite3_bind_int(stmt, 13, data->PlayerId);
+    sqlite3_bind_int(stmt, 14, data->MsgIndex);
 
-    db.commit();
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+        std::cout << "[WARN] Database: failed to update email" << std::endl;
+
+    sqlite3_finalize(stmt);
 }
 
 void Database::deleteEmailAttachments(int playerID, int index, int slot) {
     std::lock_guard<std::mutex> lock(dbCrit);
 
-    db.begin_transaction();
+    sqlite3_stmt* stmt;
 
-    if (slot == -1) { // delete all
-        db.remove_all<Database::EmailItem>(
-            where(c(&Database::EmailItem::PlayerId) == playerID && c(&Database::EmailItem::MsgIndex) == index)
-            );
-    } else { // delete single by comparing slot num
-        db.remove_all<Database::EmailItem>(
-            where(c(&Database::EmailItem::PlayerId) == playerID && c(&Database::EmailItem::MsgIndex) == index
-                && c(&Database::EmailItem::Slot) == slot)
-            );
-    }
+    std::string sql(R"(
+        DELETE FROM EmailItems
+        WHERE PlayerID = ? AND MsgIndex = ?;
+        )");
 
-    db.commit();
+    if (slot != -1)
+        sql += " AND \"Slot\" = ? ";
+    sql += ";";
+
+    sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, playerID);
+    sqlite3_bind_int(stmt, 2, index);
+    if (slot != -1)
+        sqlite3_bind_int(stmt, 3, slot);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE)
+        std::cout << "[WARN] Database: Failed to delete email attachments" << std::endl;
+    sqlite3_finalize(stmt);
 }
 
 void Database::deleteEmails(int playerID, int64_t* indices) {
     std::lock_guard<std::mutex> lock(dbCrit);
 
-    db.begin_transaction();
+    sqlite3_exec(db, "BEGIN TRANSACTION;", NULL, NULL, NULL);
+    sqlite3_stmt* stmt;
+
+    const char* sql = R"(
+        DELETE FROM EmailData
+        WHERE PlayerID = ? AND MsgIndex = ?;
+        )";
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
 
     for (int i = 0; i < 5; i++) {
-        db.remove_all<Database::EmailData>(
-            where(c(&Database::EmailData::PlayerId) == playerID && c(&Database::EmailData::MsgIndex) == indices[i])
-            ); // no need to check if the index is 0, since an email will never have index < 1
+        sqlite3_bind_int(stmt, 1, playerID);
+        sqlite3_bind_int64(stmt, 2, indices[i]);
+        if (sqlite3_step(stmt) != SQLITE_DONE) {
+            std::cout << "[WARN] Database: Failed to delete an emil" << std::endl;
+        }
+        sqlite3_reset(stmt);
     }
+    sqlite3_finalize(stmt);
 
-    db.commit();
+    sqlite3_exec(db, "COMMIT;", NULL, NULL, NULL);
 }
 
 int Database::getNextEmailIndex(int playerID) {
     std::lock_guard<std::mutex> lock(dbCrit);
 
-    auto emailData = db.get_all<Database::EmailData>(
-        where(c(&Database::EmailData::PlayerId) == playerID),
-        order_by(&Database::EmailData::MsgIndex).desc(),
-        limit(1)
-        );
+    const char* sql = R"(
+        SELECT MsgIndex
+        FROM EmailData
+        WHERE PlayerID = ?
+        ORDER BY MsgIndex DESC
+        LIMIT 1;
+        )";
+    sqlite3_stmt* stmt;
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, playerID);
+    sqlite3_step(stmt);
+    int index = sqlite3_column_int(stmt, 0);
 
-    return (emailData.size() > 0 ? emailData.at(0).MsgIndex + 1 : 1);
+    return (index > 0 ? index + 1 : 1);
 }
 
-void Database::sendEmail(EmailData* data, std::vector<sItemBase> attachments) {
+bool Database::sendEmail(EmailData* data, std::vector<sItemBase> attachments) {
     std::lock_guard<std::mutex> lock(dbCrit);
 
-    db.begin_transaction();
+    sqlite3_exec(db, "BEGIN TRANSACTION;", NULL, NULL, NULL);
 
-    db.insert(*data); // add email data to db
-    // add email attachments to db email inventory
-    int slot = 1;
-    for (sItemBase item : attachments) {
-        EmailItem dbItem = {
-            data->PlayerId,
-            data->MsgIndex,
-            slot++,
-            item.iType,
-            item.iID,
-            item.iOpt,
-            item.iTimeLimit
-        };
-        db.insert(dbItem);
+    const char* sql = R"(
+        INSERT INTO EmailData
+            (PlayerID, MsgIndex, ReadFlag, ItemFlag,
+            SenderID, SenderFirstName, SenderLastName,
+            SubjectLine, MsgBody, Taros, SendTime, DeleteTime)
+        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        )";
+    sqlite3_stmt* stmt;
+
+    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_bind_int(stmt, 1, data->PlayerId);
+    sqlite3_bind_int(stmt, 2, data->MsgIndex);
+    sqlite3_bind_int(stmt, 3, data->ReadFlag);
+    sqlite3_bind_int(stmt, 4, data->ItemFlag);
+    sqlite3_bind_int(stmt, 5, data->SenderId);
+    sqlite3_bind_text(stmt, 6, data->SenderFirstName.c_str(), -1, NULL);
+    sqlite3_bind_text(stmt, 7, data->SenderLastName.c_str(), -1, NULL);
+    sqlite3_bind_text(stmt, 8, data->SubjectLine.c_str(), -1, NULL);
+    sqlite3_bind_text(stmt, 9, data->MsgBody.c_str(), -1, NULL);
+    sqlite3_bind_int(stmt, 10, data->Taros);
+    sqlite3_bind_int64(stmt, 11, data->SendTime);
+    sqlite3_bind_int64(stmt, 12, data->DeleteTime);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        std::cout << "[WARN] Database: Failed to send email" << std::endl;
+        sqlite3_exec(db, "ROLLBACK TRANSACTION;", NULL, NULL, NULL);
+        sqlite3_finalize(stmt);
+        return false;
     }
 
-    db.commit();
+    // send attachments
+    int slot = 1;
+    for (sItemBase item : attachments) {
+        sql = R"(
+            INSERT INTO EmailItems
+                (PlayerID, MsgIndex, Slot, ID, Type, Opt, TimeLimit)
+            VALUES (?, ?, ?, ?, ?, ?, ?);
+            )";
+        sqlite3_stmt* stmt;
+
+        sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+        sqlite3_bind_int(stmt, 1, data->PlayerId);
+        sqlite3_bind_int(stmt, 2, data->MsgIndex);
+        sqlite3_bind_int(stmt, 3, slot++);
+        sqlite3_bind_int(stmt, 4, item.iID);
+        sqlite3_bind_int(stmt, 5, item.iType);
+        sqlite3_bind_int(stmt, 6, item.iOpt);
+        sqlite3_bind_int(stmt, 7, item.iTimeLimit);
+
+        if (sqlite3_step(stmt) != SQLITE_DONE) {
+            std::cout << "[WARN] Database: Failed to send email" << std::endl;
+            sqlite3_exec(db, "ROLLBACK TRANSACTION;", NULL, NULL, NULL);
+            sqlite3_finalize(stmt);
+            return false;
+        }
+        sqlite3_reset(stmt);
+    }
+    sqlite3_finalize(stmt);
+    sqlite3_exec(db, "COMMIT;", NULL, NULL, NULL);
+    return true;
 }
 
-#pragma endregion ShardServer

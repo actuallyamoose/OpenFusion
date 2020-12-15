@@ -404,6 +404,11 @@ void MobManager::killMob(CNSocket *sock, Mob *mob) {
     // delay the despawn animation
     mob->despawned = false;
 
+    // fire any triggered events
+    for (NPCEvent& event : NPCManager::NPCEvents)
+        if (event.trigger == ON_KILLED && event.npcType == mob->appearanceData.iNPCType)
+            event.handler(sock, mob);
+
     auto it = TransportManager::NPCQueues.find(mob->appearanceData.iNPC_ID);
     if (it == TransportManager::NPCQueues.end() || it->second.empty())
         return;
@@ -632,10 +637,6 @@ void MobManager::roamingStep(Mob *mob, time_t currTime) {
             return;
     }
 
-    // some mobs don't move (and we mustn't divide/modulus by zero)
-    if (mob->idleRange == 0)
-        return;
-
     // no random roaming if the mob already has a set path
     if (mob->staticPath)
         return;
@@ -655,6 +656,10 @@ void MobManager::roamingStep(Mob *mob, time_t currTime) {
     int xStart = mob->spawnX - mob->idleRange/2;
     int yStart = mob->spawnY - mob->idleRange/2;
     int speed = mob->data["m_iWalkSpeed"];
+
+    // some mobs don't move (and we mustn't divide/modulus by zero)
+    if (mob->idleRange == 0 || speed == 0)
+        return;
 
     int farX, farY;
     int distance; // for short walk detection

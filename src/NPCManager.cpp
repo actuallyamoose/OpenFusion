@@ -446,6 +446,30 @@ void NPCManager::npcUnsummonHandler(CNSocket* sock, CNPacketData* data) {
     NPCManager::destroyNPC(req->iNPC_ID);
 }
 
+// type must already be checked and updateNPCPosition() must be called on the result
+BaseNPC *NPCManager::summonNPC(int x, int y, int z, uint64_t instance, int type, bool respawn, bool baseInstance) {
+    uint64_t inst = baseInstance ? MAPNUM(instance) : instance;
+#define EXTRA_HEIGHT 0
+
+    assert(nextId < INT32_MAX);
+    int id = nextId++;
+    int team = NPCData[type]["m_iTeam"];
+    BaseNPC *npc = nullptr;
+
+    if (team == 2) {
+        npc = new Mob(x, y, z + EXTRA_HEIGHT, inst, type, NPCData[type], id);
+        MobManager::Mobs[id] = (Mob*)npc;
+
+        // re-enable respawning, if desired
+        ((Mob*)npc)->summoned = !respawn;
+    } else
+        npc = new BaseNPC(x, y, z + EXTRA_HEIGHT, 0, inst, type, id);
+
+    NPCs[id] = npc;
+
+    return npc;
+}
+
 void NPCManager::npcSummonHandler(CNSocket* sock, CNPacketData* data) {
     if (data->size != sizeof(sP_CL2FE_REQ_NPC_SUMMON))
         return; // malformed packet
@@ -457,19 +481,9 @@ void NPCManager::npcSummonHandler(CNSocket* sock, CNPacketData* data) {
     if (plr->accountLevel > 30 || req->iNPCType >= 3314 || req->iNPCCnt > 100)
         return;
 
-    int team = NPCData[req->iNPCType]["m_iTeam"];
-
     for (int i = 0; i < req->iNPCCnt; i++) {
-        assert(nextId < INT32_MAX);
-        int id = nextId++;
-
-        if (team == 2) {
-            NPCs[id] = new Mob(plr->x, plr->y, plr->z, plr->instanceID, req->iNPCType, NPCData[req->iNPCType], id);
-            MobManager::Mobs[id] = (Mob*)NPCs[id];
-        } else
-            NPCs[id] = new BaseNPC(plr->x, plr->y, plr->z, 0, plr->instanceID, req->iNPCType, id);
-
-        updateNPCPosition(id, plr->x, plr->y, plr->z, plr->instanceID, 0);
+        BaseNPC *npc = summonNPC(plr->x, plr->y, plr->z, plr->instanceID, req->iNPCType);
+        updateNPCPosition(npc->appearanceData.iNPC_ID, plr->x, plr->y, plr->z, plr->instanceID, 0);
     }
 }
 
@@ -502,6 +516,12 @@ void NPCManager::handleWarp(CNSocket* sock, int32_t warpId) {
         if (Warps[warpId].limitTaskID != 0 || instanceID == 14) { // 14 is a special case for the Time Lab
             instanceID += ((uint64_t)plr->iIDGroup << 32); // upper 32 bits are leader ID
             ChunkManager::createInstance(instanceID);
+
+            // save Lair entrance coords as a pseudo-Resurrect 'Em
+            plr->recallX = Warps[warpId].x;
+            plr->recallY = Warps[warpId].y;
+            plr->recallZ = Warps[warpId].z + RESURRECT_HEIGHT;
+            plr->recallInstance = instanceID;
         }
 
         if (plr->iID == plr->iIDGroup && plr->groupCnt == 1)
@@ -796,3 +816,57 @@ void NPCManager::eggPickup(CNSocket* sock, CNPacketData* data) {
         egg->appearanceData.iHP = 0;
     }
 }
+
+#pragma region NPCEvents
+
+// summon right arm and stage 2 body
+static void lordFuseStageTwo(CNSocket *sock, BaseNPC *npc) {
+    Mob *oldbody = (Mob*)npc; // adaptium, stun
+    Player *plr = PlayerManager::getPlayer(sock);
+
+    std::cout << "Lord Fuse stage two" << std::endl;
+
+    // Fuse doesn't move; spawnX, etc. is shorter to write than *appearanceData*
+    // Blastons, Heal
+    Mob *newbody = (Mob*)NPCManager::summonNPC(oldbody->spawnX, oldbody->spawnY, oldbody->spawnZ, plr->instanceID, 2467);
+
+    newbody->appearanceData.iAngle = oldbody->appearanceData.iAngle;
+    NPCManager::updateNPCPosition(newbody->appearanceData.iNPC_ID, newbody->spawnX, newbody->spawnY, newbody->spawnZ,
+        plr->instanceID, oldbody->appearanceData.iAngle);
+
+    // right arm, Adaptium, Stun
+    Mob *arm = (Mob*)NPCManager::summonNPC(oldbody->spawnX - 600, oldbody->spawnY, oldbody->spawnZ, plr->instanceID, 2469);
+
+    arm->appearanceData.iAngle = oldbody->appearanceData.iAngle;
+    NPCManager::updateNPCPosition(arm->appearanceData.iNPC_ID, arm->spawnX, arm->spawnY, arm->spawnZ,
+        plr->instanceID, oldbody->appearanceData.iAngle);
+}
+
+// summon left arm and stage 3 body
+static void lordFuseStageThree(CNSocket *sock, BaseNPC *npc) {
+    Mob *oldbody = (Mob*)npc;
+    Player *plr = PlayerManager::getPlayer(sock);
+
+    std::cout << "Lord Fuse stage three" << std::endl;
+
+    // Cosmic, Damage Point
+    Mob *newbody = (Mob*)NPCManager::summonNPC(oldbody->spawnX, oldbody->spawnY, oldbody->spawnZ, plr->instanceID, 2468);
+
+    newbody->appearanceData.iAngle = oldbody->appearanceData.iAngle;
+    NPCManager::updateNPCPosition(newbody->appearanceData.iNPC_ID, newbody->spawnX, newbody->spawnY, newbody->spawnZ,
+        plr->instanceID, oldbody->appearanceData.iAngle);
+
+    // Blastons, Heal
+    Mob *arm = (Mob*)NPCManager::summonNPC(oldbody->spawnX + 600, oldbody->spawnY, oldbody->spawnZ, plr->instanceID, 2470);
+
+    arm->appearanceData.iAngle = oldbody->appearanceData.iAngle;
+    NPCManager::updateNPCPosition(arm->appearanceData.iNPC_ID, arm->spawnX, arm->spawnY, arm->spawnZ,
+        plr->instanceID, oldbody->appearanceData.iAngle);
+}
+
+std::vector<NPCEvent> NPCManager::NPCEvents = {
+    NPCEvent(2466, ON_KILLED, lordFuseStageTwo),
+    NPCEvent(2467, ON_KILLED, lordFuseStageThree),
+};
+
+#pragma endregion NPCEvents

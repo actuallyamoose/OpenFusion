@@ -17,7 +17,6 @@ struct Player {
     int64_t SerialKey;
     int32_t iID;
     uint64_t FEKey;
-    time_t creationTime;
 
     int level;
     int HP;
@@ -41,7 +40,7 @@ struct Player {
 
     int x, y, z, angle;
     int lastX, lastY, lastZ, lastAngle;
-    int recallX, recallY, recallZ, recallInstance;
+    int recallX, recallY, recallZ, recallInstance; // also Lair entrances
     uint64_t instanceID;
     sItemBase Equip[AEQUIP_COUNT];
     sItemBase Inven[AINVEN_COUNT];
@@ -78,6 +77,9 @@ struct Player {
 
     bool buddiesSynced;
     int64_t buddyIDs[50];
+    bool isBuddyBlocked[50];
+
+    uint64_t iFirstUseFlag[2];
 
     ChunkPos chunkPos;
     std::set<Chunk*>* viewableChunks;

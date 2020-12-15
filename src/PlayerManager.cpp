@@ -45,6 +45,7 @@ void PlayerManager::init() {
     REGISTER_SHARD_PACKET(P_CL2FE_REQ_PC_VEHICLE_ON, enterPlayerVehicle);
     REGISTER_SHARD_PACKET(P_CL2FE_REQ_PC_VEHICLE_OFF, exitPlayerVehicle);
     REGISTER_SHARD_PACKET(P_CL2FE_REQ_PC_CHANGE_MENTOR, changePlayerGuide);
+    REGISTER_SHARD_PACKET(P_CL2FE_REQ_PC_FIRST_USE_FLAG_SET, setFirstUseFlag);
 }
 
 void PlayerManager::addPlayer(CNSocket* key, Player plr) {
@@ -257,9 +258,15 @@ void PlayerManager::enterPlayer(CNSocket* sock, CNPacketData* data) {
         response.PCLoadData2CL.aQuestFlag[i] = plr.aQuestFlag[i];
     }
 
-    // shut Computress up
-    response.PCLoadData2CL.iFirstUseFlag1 = UINT64_MAX;
-    response.PCLoadData2CL.iFirstUseFlag2 = UINT64_MAX;
+    // Computress tips
+    if (settings::DISABLEFIRSTUSEFLAG) {
+        response.PCLoadData2CL.iFirstUseFlag1 = UINT64_MAX;
+        response.PCLoadData2CL.iFirstUseFlag2 = UINT64_MAX;
+    }
+    else {
+        response.PCLoadData2CL.iFirstUseFlag1 = plr.iFirstUseFlag[0];
+        response.PCLoadData2CL.iFirstUseFlag2 = plr.iFirstUseFlag[1];
+    }
 
     plr.SerialKey = enter->iEnterSerialKey;
     plr.instanceID = INSTANCE_OVERWORLD; // the player should never be in an instance on enter
@@ -692,7 +699,6 @@ void PlayerManager::revivePlayer(CNSocket* sock, CNPacketData* data) {
         return;
 
     Player *plr = PlayerManager::getPlayer(sock);
-
     WarpLocation* target = PlayerManager::getRespawnPoint(plr);
 
     sP_CL2FE_REQ_PC_REGEN* reviveData = (sP_CL2FE_REQ_PC_REGEN*)data->buf;
@@ -700,7 +706,6 @@ void PlayerManager::revivePlayer(CNSocket* sock, CNPacketData* data) {
     INITSTRUCT(sP_FE2CL_PC_REGEN, resp2);
 
     int activeSlot = -1;
-
     bool move = false;
 
     if (reviveData->iRegenType == 3 && plr->iConditionBitFlag & CSB_BIT_PHOENIX) {
@@ -727,49 +732,61 @@ void PlayerManager::revivePlayer(CNSocket* sock, CNPacketData* data) {
             activeSlot = i;
     }
 
+    int x, y, z;
+    if (move && target != nullptr) {
+        // go to Resurrect 'Em
+        x = target->x;
+        y = target->y;
+        z = target->z;
+    } else if (PLAYERID(plr->instanceID)) {
+        // respawn at entrance to the Lair
+        x = plr->recallX;
+        y = plr->recallY;
+        z = plr->recallZ;
+    } else {
+        // no other choice; respawn in place
+        x = plr->x;
+        y = plr->y;
+        z = plr->z;
+    }
+
     // Response parameters
     response.PCRegenData.iActiveNanoSlotNum = activeSlot;
-    if (move && target != nullptr) {
-        response.PCRegenData.iX = target->x;
-        response.PCRegenData.iY = target->y;
-        response.PCRegenData.iZ = target->z;
-    } else {
-        response.PCRegenData.iX = plr->x;
-        response.PCRegenData.iY = plr->y;
-        response.PCRegenData.iZ = plr->z;
-    }
+    response.PCRegenData.iX = x;
+    response.PCRegenData.iY = y;
+    response.PCRegenData.iZ = z;
     response.PCRegenData.iHP = plr->HP;
     response.iFusionMatter = plr->fusionmatter;
     response.bMoveLocation = 0;
-    response.PCRegenData.iMapNum = 0;
+    response.PCRegenData.iMapNum = MAPNUM(plr->instanceID);
 
     sock->sendPacket((void*)&response, P_FE2CL_REP_PC_REGEN_SUCC, sizeof(sP_FE2CL_REP_PC_REGEN_SUCC));
 
     // Update other players
     resp2.PCRegenDataForOtherPC.iPC_ID = plr->iID;
-    resp2.PCRegenDataForOtherPC.iX = plr->x;
-    resp2.PCRegenDataForOtherPC.iY = plr->y;
-    resp2.PCRegenDataForOtherPC.iZ = plr->z;
+    resp2.PCRegenDataForOtherPC.iX = x;
+    resp2.PCRegenDataForOtherPC.iY = y;
+    resp2.PCRegenDataForOtherPC.iZ = z;
     resp2.PCRegenDataForOtherPC.iHP = plr->HP;
     resp2.PCRegenDataForOtherPC.iAngle = plr->angle;
 
     Player *otherPlr = PlayerManager::getPlayerFromID(plr->iIDGroup);
-    if (otherPlr == nullptr)
-        return;
-    int bitFlag = GroupManager::getGroupFlags(otherPlr);
-    resp2.PCRegenDataForOtherPC.iConditionBitFlag = plr->iConditionBitFlag = plr->iSelfConditionBitFlag | bitFlag;
+    if (otherPlr != nullptr) {
+        int bitFlag = GroupManager::getGroupFlags(otherPlr);
+        resp2.PCRegenDataForOtherPC.iConditionBitFlag = plr->iConditionBitFlag = plr->iSelfConditionBitFlag | bitFlag;
 
-    resp2.PCRegenDataForOtherPC.iPCState = plr->iPCState;
-    resp2.PCRegenDataForOtherPC.iSpecialState = plr->iSpecialState;
-    resp2.PCRegenDataForOtherPC.Nano = plr->Nanos[plr->activeNano];
+        resp2.PCRegenDataForOtherPC.iPCState = plr->iPCState;
+        resp2.PCRegenDataForOtherPC.iSpecialState = plr->iSpecialState;
+        resp2.PCRegenDataForOtherPC.Nano = plr->Nanos[plr->activeNano];
 
-    sendToViewable(sock, (void*)&resp2, P_FE2CL_PC_REGEN, sizeof(sP_FE2CL_PC_REGEN));
+        sendToViewable(sock, (void*)&resp2, P_FE2CL_PC_REGEN, sizeof(sP_FE2CL_PC_REGEN));
+    }
 
-    if (!move || target == nullptr)
+    if (!move)
         return;
 
     ChunkManager::updatePlayerChunk(sock, plr->chunkPos, std::make_tuple(0, 0, 0)); // force player to reload chunks
-    updatePlayerPosition(sock, target->x, target->y, target->z, plr->instanceID, plr->angle);
+    updatePlayerPosition(sock, x, y, z, plr->instanceID, plr->angle);
 }
 
 void PlayerManager::enterPlayerVehicle(CNSocket* sock, CNPacketData* data) {
@@ -858,6 +875,24 @@ void PlayerManager::changePlayerGuide(CNSocket *sock, CNPacketData *data) {
     plr->mentor = pkt->iMentor;
 }
 
+void PlayerManager::setFirstUseFlag(CNSocket* sock, CNPacketData* data) {
+    if (data->size != sizeof(sP_CL2FE_REQ_PC_FIRST_USE_FLAG_SET))
+        return;
+
+    sP_CL2FE_REQ_PC_FIRST_USE_FLAG_SET* flag = (sP_CL2FE_REQ_PC_FIRST_USE_FLAG_SET*)data->buf;
+    Player* plr = getPlayer(sock);
+
+    if (flag->iFlagCode < 1 || flag->iFlagCode > 128) {
+        std::cout << "[WARN] Client submitted invalid first use flag number?!" << std::endl;
+        return;
+    }
+    
+    if (flag->iFlagCode <= 64)
+        plr->iFirstUseFlag[0] |= (1ULL << (flag->iFlagCode - 1));
+    else
+        plr->iFirstUseFlag[1] |= (1ULL << (flag->iFlagCode - 65));
+}
+
 #pragma region Helper methods
 Player *PlayerManager::getPlayer(CNSocket* key) {
     if (players.find(key) != players.end())
@@ -872,7 +907,11 @@ std::string PlayerManager::getPlayerName(Player *plr, bool id) {
     if (plr == nullptr)
         return "NOT IN GAME";
 
-    std::string ret = U16toU8(plr->PCStyle.szFirstName) + " " + U16toU8(plr->PCStyle.szLastName);
+    std::string ret = "";
+    if (id && plr->accountLevel <= 10)
+        ret += "(GM) ";
+
+    ret += U16toU8(plr->PCStyle.szFirstName) + " " + U16toU8(plr->PCStyle.szLastName);
 
     if (id)
         ret += " [" + std::to_string(plr->iID) + "]";

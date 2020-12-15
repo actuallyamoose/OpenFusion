@@ -4,85 +4,15 @@
 #include <string>
 #include <vector>
 
+#define DATABASE_VERSION 1
+
 namespace Database {
-#pragma region DatabaseStructs
 
     struct Account {
         int AccountID;
-        std::string Login;
         std::string Password;
         int Selected;
-        uint64_t Created;
-        uint64_t LastLogin;
-    };
-    struct Inventory {
-        int playerId;
-        int slot;
-        int16_t Type;
-        int16_t id;
-        int32_t Opt;
-        int32_t TimeLimit;
-    };
-    struct Nano {
-        int playerId;
-        int16_t iID;
-        int16_t iSkillID;
-        int16_t iStamina;
-    };
-    struct DbPlayer {
-        int PlayerID;
-        int AccountID;
-        short int slot;
-        std::string FirstName;
-        std::string LastName;
-        uint64_t Created;
-        uint64_t LastLogin;
-        short int Level;
-        int Nano1;
-        int Nano2;
-        int Nano3;
-        short int AppearanceFlag;
-        short int Body;
-        short int Class;
-        short int EyeColor;
-        short int FaceStyle;
-        short int Gender;
-        int HP;
-        short int HairColor;
-        short int HairStyle;
-        short int Height;
-        short int NameCheck;
-        short int PayZoneFlag;
-        short int SkinColor;
-        bool TutorialFlag;
-        int AccountLevel;
-        int FusionMatter;
-        int Taros;
-        int x_coordinates;
-        int y_coordinates;
-        int z_coordinates;
-        int angle;
-        short int PCState;
-        int BatteryW;
-        int BatteryN;
-        int16_t Mentor;
-        std::vector<char> QuestFlag;
-        int32_t CurrentMissionID;
-        int32_t WarpLocationFlag;
-        int64_t SkywayLocationFlag1;
-        int64_t SkywayLocationFlag2;
-    };
-    struct DbQuest {
-        int PlayerId;
-        int32_t TaskId;
-        int RemainingNPCCount1;
-        int RemainingNPCCount2;
-        int RemainingNPCCount3;
-    };
-    struct Buddyship {
-        int PlayerAId;
-        int PlayerBId;
-        int16_t Status;
+        time_t BannedUntil;
     };
     struct EmailData {
         int PlayerId;
@@ -98,76 +28,54 @@ namespace Database {
         uint64_t SendTime;
         uint64_t DeleteTime;
     };
-    struct EmailItem {
-        int PlayerId;
-        int MsgIndex;
-        int Slot;
-        int16_t Type;
-        int16_t Id;
-        int32_t Opt;
-        int32_t TimeLimit;
-    };
-
-
-#pragma endregion DatabaseStructs
-
-    // handles migrations
+    
     void open();
-    int getAccountsCount();
-    int getPlayersCount();
-    // returns ID
+    void close();
+    void checkMetaTable();
+    void createMetaTable();
+    void createTables();
+    int getTableSize(std::string tableName);
+
+    void findAccount(Account* account, std::string login);
+    /// returns ID, 0 if something failed
     int addAccount(std::string login, std::string password);
+    void banAccount(int accountId, int days);
     void updateSelected(int accountId, int playerId);
-    std::unique_ptr<Account> findAccount(std::string login);
+    
     bool validateCharacter(int characterID, int userID);
     bool isNameFree(std::string firstName, std::string lastName);
     bool isSlotFree(int accountId, int slotNum);
-    // called after chosing name, returns ID
+    /// returns ID, 0 if something failed
     int createCharacter(sP_CL2LS_REQ_SAVE_CHAR_NAME* save, int AccountID);
-    // called after finishing creation
-    void finishCharacter(sP_CL2LS_REQ_CHAR_CREATE* character);
-    // called after tutorial
-    void finishTutorial(int PlayerID);
-    // returns slot number
+    /// returns true if query succeeded
+    bool finishCharacter(sP_CL2LS_REQ_CHAR_CREATE* character, int accountId);
+    /// returns true if query succeeded
+    bool finishTutorial(int playerID, int accountID);
+    /// returns slot number if query succeeded
     int deleteCharacter(int characterID, int userID);
-    std::vector <Player> getCharacters(int userID);
-    std::vector <sP_LS2CL_REP_CHAR_INFO> getCharInfo(int userID);
-    // accepting/declining custom name
+    void getCharInfo(std::vector <sP_LS2CL_REP_CHAR_INFO>* result, int userID);
+    /// accepting/declining custom name
     enum class CustomName {
         APPROVE = 1,
         DISAPPROVE = 2
     };
     void evaluateCustomName(int characterID, CustomName decision);
-    void changeName(sP_CL2LS_REQ_CHANGE_CHAR_NAME* save);
-
-    // parsing DbPlayer
-    DbPlayer playerToDb(Player *player);
-    Player DbToPlayer(DbPlayer player);
+    /// returns true if query succeeded
+    bool changeName(sP_CL2LS_REQ_CHANGE_CHAR_NAME* save, int accountId);
 
     // getting players
-    DbPlayer getDbPlayerById(int id);
-    Player getPlayer(int id);
-
+    void getPlayer(Player* plr, int id);
     void updatePlayer(Player *player);
-    void updateInventory(Player *player);
-    void updateNanos(Player *player);
-    void updateQuests(Player* player);
-    void updateBuddies(Player* player);
-
-    void getInventory(Player* player);
     void removeExpiredVehicles(Player* player);
-    void getNanos(Player* player);
-    void getQuests(Player* player);
-    void getBuddies(Player* player);
-    int getNumBuddies(Player* player);
-
-    // parsing blobs
-    void appendBlob(std::vector<char>*blob, int64_t input);
-    int64_t blobToInt64(std::vector<char>::iterator it);
-
+    
     // buddies
+    int getNumBuddies(Player* player);
     void addBuddyship(int playerA, int playerB);
     void removeBuddyship(int playerA, int playerB);
+    
+    // blocking
+    void addBlock(int playerId, int blockedPlayerId);
+    void removeBlock(int playerId, int blockedPlayerId);
 
     // email
     int getUnreadEmailCount(int playerID);
@@ -178,5 +86,5 @@ namespace Database {
     void deleteEmailAttachments(int playerID, int index, int slot);
     void deleteEmails(int playerID, int64_t* indices);
     int getNextEmailIndex(int playerID);
-    void sendEmail(EmailData* data, std::vector<sItemBase> attachments);
+    bool sendEmail(EmailData* data, std::vector<sItemBase> attachments);
 }

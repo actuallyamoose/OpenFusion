@@ -121,33 +121,41 @@ void CNLoginServer::login(CNSocket* sock, CNPacketData* data) {
     if (!CNLoginServer::isLoginDataGood(userLogin, userPassword))
         return loginFail(LoginError::LOGIN_ERROR, userLogin, sock);
 
-    std::unique_ptr<Database::Account> findUser = Database::findAccount(userLogin);
-    if (findUser == nullptr)
+    Database::Account findUser = {};
+    Database::findAccount(&findUser, userLogin);
+    
+    // account was not found
+    if (findUser.AccountID == 0)
         return newAccount(sock, userLogin, userPassword, login->iClientVerC);
 
-    if (!CNLoginServer::isPasswordCorrect(findUser->Password, userPassword))
+    if (!CNLoginServer::isPasswordCorrect(findUser.Password, userPassword))
         return loginFail(LoginError::ID_AND_PASSWORD_DO_NOT_MATCH, userLogin, sock);
+
+    // is the account banned
+    if (findUser.BannedUntil > getTimestamp())
+        return loginFail(LoginError::LOGIN_ERROR, userLogin, sock);
 
     /* 
      * calling this here to timestamp login attempt,
      * in order to make duplicate exit sanity check work
      */
-    Database::updateSelected(findUser->AccountID, findUser->Selected);
+    Database::updateSelected(findUser.AccountID, findUser.Selected);
 
-    if (CNLoginServer::isAccountInUse(findUser->AccountID))
+    if (CNLoginServer::isAccountInUse(findUser.AccountID))
         return loginFail(LoginError::ID_ALREADY_IN_USE, userLogin, sock);
 
     loginSessions[sock] = CNLoginData();
-    loginSessions[sock].userID = findUser->AccountID;
+    loginSessions[sock].userID = findUser.AccountID;
     loginSessions[sock].lastHeartbeat = getTime();
 
-    std::vector<sP_LS2CL_REP_CHAR_INFO> characters = Database::getCharInfo(loginSessions[sock].userID);
+    std::vector<sP_LS2CL_REP_CHAR_INFO> characters;
+    Database::getCharInfo(&characters, loginSessions[sock].userID);
 
     INITSTRUCT(sP_LS2CL_REP_LOGIN_SUCC, resp);
     memcpy(resp.szID, login->szID, sizeof(login->szID));
 
     resp.iCharCount = characters.size();
-    resp.iSlotNum = findUser->Selected;
+    resp.iSlotNum = findUser.Selected;
     resp.iPaymentFlag = 1;
     resp.iOpenBetaFlag = 0;
     resp.uiSvrTime = getTime();
@@ -162,7 +170,7 @@ void CNLoginServer::login(CNSocket* sock, CNPacketData* data) {
     DEBUGLOG(
         std::cout << "Login Server: Login success. Welcome " << userLogin << " [" << loginSessions[sock].userID << "]" << std::endl;
     )
-
+        
     if (resp.iCharCount == 0)
         return;
 
@@ -177,8 +185,14 @@ void CNLoginServer::login(CNSocket* sock, CNPacketData* data) {
 }
 
 void CNLoginServer::newAccount(CNSocket* sock, std::string userLogin, std::string userPassword, int32_t clientVerC) {   
+
+    int userID = Database::addAccount(userLogin, userPassword);
+    // if query somehow failed
+    if (userID == 0)
+        return loginFail(LoginError::DATABASE_ERROR, userLogin, sock);
+
     loginSessions[sock] = CNLoginData();
-    loginSessions[sock].userID = Database::addAccount(userLogin, userPassword);
+    loginSessions[sock].userID = userID;
     loginSessions[sock].lastHeartbeat = getTime();
 
     INITSTRUCT(sP_LS2CL_REP_LOGIN_SUCC, resp);
@@ -242,8 +256,6 @@ void CNLoginServer::nameSave(CNSocket* sock, CNPacketData* data) {
         errorCode = 4;
     } else if (!Database::isNameFree(U16toU8(save->szFirstName), U16toU8(save->szLastName))) {
         errorCode = 1;
-    } else if (!Database::isSlotFree(loginSessions[sock].userID, save->iSlotNum)) {
-        return invalidCharacter(sock);
     }
 
     if (errorCode != 0) {
@@ -258,9 +270,18 @@ void CNLoginServer::nameSave(CNSocket* sock, CNPacketData* data) {
         return;
     }
 
+    if (!Database::isSlotFree(loginSessions[sock].userID, save->iSlotNum))
+        return invalidCharacter(sock);
+
+    resp.iPC_UID = Database::createCharacter(save, loginSessions[sock].userID);
+    // if query somehow failed
+    if (resp.iPC_UID == 0) {
+        std::cout << "[WARN] Login Server: Database failed to create new character!" << std::endl;
+        return invalidCharacter(sock);
+    }
     resp.iSlotNum = save->iSlotNum;
     resp.iGender = save->iGender;
-    resp.iPC_UID = Database::createCharacter(save, loginSessions[sock].userID);
+    
     memcpy(resp.szFirstName, save->szFirstName, sizeof(resp.szFirstName));
     memcpy(resp.szLastName, save->szLastName, sizeof(resp.szLastName));
 
@@ -318,18 +339,27 @@ void CNLoginServer::characterCreate(CNSocket* sock, CNPacketData* data) {
 
     sP_CL2LS_REQ_CHAR_CREATE* character = (sP_CL2LS_REQ_CHAR_CREATE*)data->buf;
 
-    if (!(Database::validateCharacter(character->PCStyle.iPC_UID, loginSessions[sock].userID) && validateCharacterCreation(character)))
+    if (!validateCharacterCreation(character))
+    {
+        std::cout << "[WARN] Login Server: invalid CHAR_CREATE packet!" << std::endl;
         return invalidCharacter(sock);
-
-    Database::finishCharacter(character);
-
-    Player player = Database::getPlayer(character->PCStyle.iPC_UID);;
+    }
+    if (!Database::finishCharacter(character, loginSessions[sock].userID))
+    {
+        std::cout << "[WARN] Login Server: Database failed to finish character creation!" << std::endl;
+        return invalidCharacter(sock);
+    }
+    
+    Player player = {};
+    Database::getPlayer(&player, character->PCStyle.iPC_UID);
 
     INITSTRUCT(sP_LS2CL_REP_CHAR_CREATE_SUCC, resp);
     resp.sPC_Style = player.PCStyle;
     resp.sPC_Style2 = player.PCStyle2;
     resp.iLevel = player.level;
-    resp.sOn_Item = character->sOn_Item;
+    resp.sOn_Item.iEquipUBID = player.Equip[1].iID;
+    resp.sOn_Item.iEquipLBID = player.Equip[2].iID;
+    resp.sOn_Item.iEquipFootID = player.Equip[3].iID;
 
     loginSessions[sock].lastHeartbeat = getTime();
 
@@ -362,10 +392,9 @@ void CNLoginServer::characterDelete(CNSocket* sock, CNPacketData* data) {
 
     sP_CL2LS_REQ_CHAR_DELETE* del = (sP_CL2LS_REQ_CHAR_DELETE*)data->buf;
 
-    if (!Database::validateCharacter(del->iPC_UID, loginSessions[sock].userID))
-        return invalidCharacter(sock);
-
     int removedSlot = Database::deleteCharacter(del->iPC_UID, loginSessions[sock].userID);
+    if (removedSlot == 0)
+        return invalidCharacter(sock);
 
     INITSTRUCT(sP_LS2CL_REP_CHAR_DELETE_SUCC, resp);
     resp.iSlotNum = removedSlot;
@@ -400,7 +429,12 @@ void CNLoginServer::characterSelect(CNSocket* sock, CNPacketData* data) {
     resp.g_FE_ServerPort = settings::SHARDPORT;
     
     // pass player to CNSharedData
-    Player passPlayer = Database::getPlayer(selection->iPC_UID);
+    Player passPlayer = {};
+    Database::getPlayer(&passPlayer, selection->iPC_UID);
+    // this should never happen but for extra safety
+    if (passPlayer.iID == 0)
+        return invalidCharacter(sock);
+
     passPlayer.FEKey = sock->getFEKey();
     resp.iEnterSerialKey = passPlayer.iID;
     CNSharedData::setPlayer(resp.iEnterSerialKey, passPlayer);
@@ -416,10 +450,9 @@ void CNLoginServer::finishTutorial(CNSocket* sock, CNPacketData* data) {
         return;
     sP_CL2LS_REQ_SAVE_CHAR_TUTOR* save = (sP_CL2LS_REQ_SAVE_CHAR_TUTOR*)data->buf;
 
-    if (!Database::validateCharacter(save->iPC_UID, loginSessions[sock].userID))
+    if (!Database::finishTutorial(save->iPC_UID, loginSessions[sock].userID))
         return invalidCharacter(sock);
 
-    Database::finishTutorial(save->iPC_UID);
     loginSessions[sock].lastHeartbeat = getTime();
     // no response here
 
@@ -433,9 +466,6 @@ void CNLoginServer::changeName(CNSocket* sock, CNPacketData* data) {
         return;
 
     sP_CL2LS_REQ_CHANGE_CHAR_NAME* save = (sP_CL2LS_REQ_CHANGE_CHAR_NAME*)data->buf;
-
-    if (!Database::validateCharacter(save->iPCUID, loginSessions[sock].userID))
-        return invalidCharacter(sock);
 
     int errorCode = 0;
     if (!CNLoginServer::isCharacterNameGood(U16toU8(save->szFirstName), U16toU8(save->szLastName))) {
@@ -457,7 +487,8 @@ void CNLoginServer::changeName(CNSocket* sock, CNPacketData* data) {
         return;
     }
 
-    Database::changeName(save);
+    if (!Database::changeName(save, loginSessions[sock].userID))
+        return invalidCharacter(sock);
 
     INITSTRUCT(sP_LS2CL_REP_CHANGE_CHAR_NAME_SUCC, resp);
     resp.iPC_UID = save->iPCUID;
@@ -482,15 +513,16 @@ void CNLoginServer::duplicateExit(CNSocket* sock, CNPacketData* data) {
     // TODO: FIX THIS PACKET
 
     sP_CL2LS_REQ_PC_EXIT_DUPLICATE* exit = (sP_CL2LS_REQ_PC_EXIT_DUPLICATE*)data->buf;
-    auto account = Database::findAccount(U16toU8(exit->szID));
+    Database::Account account = {};
+    Database::findAccount(&account, U16toU8(exit->szID));
 
     // sanity check
-    if (account == nullptr) {
+    if (account.AccountID == 0) {
         std::cout << "[WARN] P_CL2LS_REQ_PC_EXIT_DUPLICATE submitted unknown username: " << exit->szID << std::endl;
         return;
     }
 
-    exitDuplicate(account->AccountID);
+    exitDuplicate(account.AccountID);
 }
 #pragma endregion
 
